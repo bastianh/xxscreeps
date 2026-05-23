@@ -36,6 +36,7 @@ type FinalizeRequest = {
 };
 
 // Hooks
+const workerInitialized = hooks.makeMapped('workerInitialized');
 const refreshRoom = hooks.makeMapped('refreshRoom');
 initializeGameEnvironment();
 initializeIntentConstraints();
@@ -50,6 +51,7 @@ let world: World;
 // Connect to storage
 using db = await Database.connect();
 using shard = await Shard.connect(db, config.shards[0]!.name);
+await Promise.all([ ...workerInitialized(shard) ]);
 
 // Create responder host and listen for requests
 await makeBasicResponderHost<ProcessorRequest>(import.meta.url, async message => {

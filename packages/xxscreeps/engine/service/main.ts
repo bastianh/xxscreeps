@@ -40,6 +40,7 @@ await watch(() => {
 });
 
 // Hook invocators (handlers are locked in at first call, after importMods above)
+const invokeBeforeTick = hooks.makeMapped('beforeTick');
 const invokeServiceInitialized = hooks.makeMapped('serviceInitialized');
 const invokeAfterTick = hooks.makeMapped('afterTick');
 
@@ -81,10 +82,9 @@ async function tick() {
 	// Initialize tick
 	const time = shard.time;
 	const nextTime = time + 1;
-	await Promise.all([
-		shard.scratch.copy('activeUsers', runnerUsersSetKey(time)),
-		processorChannel.publish({ type: 'process', time }),
-	]);
+	await shard.scratch.copy('activeUsers', runnerUsersSetKey(time));
+	await Promise.all([ ...invokeBeforeTick({ shard, time }) ]);
+	await processorChannel.publish({ type: 'process', time });
 	await runnerChannel.publish({ type: 'run', time });
 
 	// Wait for tick to finish

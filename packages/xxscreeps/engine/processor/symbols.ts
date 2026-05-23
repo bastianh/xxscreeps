@@ -20,6 +20,11 @@ export const shardInitializers: ShardInitializer[] = [];
 
 export const hooks = makeHookRegistration<{
 	/**
+	 * Runs once after a processor worker has connected to the shard.
+	 */
+	workerInitialized: (shard: Shard) => Promise<void> | void;
+
+	/**
 	 * Runs after a processor phase has completed in a room.
 	 */
 	flushContext: () => void;
