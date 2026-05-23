@@ -11,6 +11,7 @@ import { acquireTimeout } from 'xxscreeps/utility/utility.js';
 import { tickSpeed, watch } from './tick.js';
 import { checkIsEntry, getServiceChannel } from './index.js';
 import 'xxscreeps:mods/main';
+import { hooks } from './symbols.js';
 
 checkIsEntry();
 
@@ -37,6 +38,10 @@ await watch(() => {
 	console.log(`Tick speed changed to ${tickSpeed}ms`);
 	tickDelay?.(true);
 });
+
+// Hook invocators (handlers are locked in at first call, after importMods above)
+const invokeServiceInitialized = hooks.makeMapped('serviceInitialized');
+const invokeAfterTick = hooks.makeMapped('afterTick');
 
 // Bookkeeping
 const performanceTimer = new AveragingTimer(100);
@@ -131,6 +136,14 @@ if (didInitialize) {
 	// after the scratch flush above so the seed survives into the steady state.
 	await runShardInitializers(shard);
 
+	// Notify mods that the service is ready; collect and register cleanup effects
+	const effects = await Promise.all([ ...invokeServiceInitialized(shard) ]);
+	for (const effect of effects) {
+		if (effect) {
+			disposable.defer(effect);
+		}
+	}
+
 	// Watch for shutdown and halt tick delay
 	disposable.defer(serviceChannel.listen(message => {
 		if (message.type === 'shutdown') {
@@ -149,6 +162,8 @@ if (didInitialize) {
 		const timeTaken = now - tickWallTime;
 		const averageTime = Math.floor(performanceTimer.stop() / 10000) / 100;
 		console.log(`Tick ${shard.time} ran in ${timeTaken}ms; avg: ${averageTime}ms`);
+
+		mustNotReject(Promise.all([ ...invokeAfterTick({ shard, timeTaken, averageTime }) ]));
 
 		// Maybe save
 		if (lastSave + saveInterval < now) {
