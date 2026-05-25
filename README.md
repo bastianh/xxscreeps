@@ -153,6 +153,18 @@ docker compose up
 
 This uses `./data:/data`, so the generated server data and `./data/node_modules` stay on the host.
 
+You can also provide backend secrets through environment variables instead of `.screepsrc.yaml`:
+
+```yaml
+services:
+  xxscreeps:
+    environment:
+      XXSCREEPS_BACKEND_SECRET: change-me
+      XXSCREEPS_STEAM_API_KEY: your-steam-web-api-key
+```
+
+These override `backend.secret` and `backend.steamApiKey` from the YAML config.
+
 If `./data/package.json` does not exist yet, the container will create it automatically. You can
 also pre-create `./data/extra-dependencies.json` to seed that first install with additional
 packages:
