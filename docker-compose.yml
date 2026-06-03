@@ -1,0 +1,13 @@
+services:
+  xxscreeps:
+    build:
+      context: .
+    image: xxscreeps
+    ports:
+      - "21025:21025"
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    tty: true
+    stdin_open: true
+    command: start

@@ -140,6 +140,35 @@ docker run -t -v .:/data xxscreeps import
 docker run -t -v .:/data xxscreeps start
 ```
 
+The container now installs `xxscreeps` into the mounted `/data` volume on first start. That means
+`/data/node_modules` lives in the bind mount and survives container restarts.
+
+With Docker Compose:
+```
+git clone https://github.com/laverdet/xxscreeps.git
+cd xxscreeps
+docker compose run --rm xxscreeps import
+docker compose up
+```
+
+This uses `./data:/data`, so the generated server data and `./data/node_modules` stay on the host.
+
+If `./data/package.json` does not exist yet, the container will create it automatically. You can
+also pre-create `./data/extra-dependencies.json` to seed that first install with additional
+packages:
+
+```json
+{
+  "dependencies": {
+    "@my/mod": "^1.0.0",
+    "some-extra-package": "^1.2.3"
+  }
+}
+```
+
+That file is only used to bootstrap a fresh `./data/package.json`. After that, edit
+`./data/package.json` directly.
+
 
 ## Contributing
 
