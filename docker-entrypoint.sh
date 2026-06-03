@@ -33,6 +33,12 @@ const onlyBuiltDependencies = [
 	'ivm-inspect',
 ];
 
+function writeFileAtomic(filePath, content) {
+	const tempPath = path.join(dataDir, `.${path.basename(filePath)}.${process.pid}.tmp`);
+	fs.writeFileSync(tempPath, content);
+	fs.renameSync(tempPath, filePath);
+}
+
 let packageJson = {};
 let packageJsonExists = true;
 try {
@@ -72,7 +78,7 @@ packageJson.pnpm = {
 	onlyBuiltDependencies,
 };
 
-fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+writeFileAtomic(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 NODE
 
 INSTALL_FINGERPRINT="$(node --input-type=module <<'NODE'
@@ -108,7 +114,9 @@ fi
 if [ "$NEEDS_INSTALL" -eq 1 ]; then
 	corepack enable
 	pnpm install --prod --no-frozen-lockfile
-	printf '%s\n' "$INSTALL_FINGERPRINT" > "$STAMP_FILE"
+	STAMP_TMP_FILE="$(mktemp "$DATA_DIR/.xxscreeps-runtime-stamp.XXXXXX")"
+	printf '%s\n' "$INSTALL_FINGERPRINT" > "$STAMP_TMP_FILE"
+	mv -f "$STAMP_TMP_FILE" "$STAMP_FILE"
 fi
 
 exec "$DATA_DIR/node_modules/.bin/xxscreeps" "$@"
