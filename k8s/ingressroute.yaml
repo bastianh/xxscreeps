@@ -1,0 +1,23 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: xxscreeps
+  namespace: xxscreeps
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`xxscreeps.w4rl0ck.dev`)
+      middlewares:
+        - name: redirect-https
+      services:
+        - name: xxscreeps
+          port: 21025
+  tls:
+    certResolver: letsencrypt
+    domains:
+      - main: w4rl0ck.dev
+        sans:
+          - "*.w4rl0ck.dev"

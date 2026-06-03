@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: xxscreeps
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - redis-pvc.yaml
+  - redis-service.yaml
+  - redis-deployment.yaml
+  # Switch between the two deployment modes by selecting exactly one of these:
+  #- deployment-single.yaml
+  - deployment-multi.yaml
+  - service.yaml
+  - middleware.yaml
+  - ingressroute.yaml
+
+images:
+  - name: xxscreeps
+    newName: registry.zeta.w4rl0ck.dev/xxscreeps
+    newTag: "21"

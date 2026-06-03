@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-shell
+  namespace: xxscreeps
+spec:
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  imagePullSecrets:
+    - name: registry-credentials
+  containers:
+    - name: shell
+      image: registry.zeta.w4rl0ck.dev/xxscreeps:21
+      command: ["/bin/sh", "-c", "sleep 36000"]
+      workingDir: /data
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      env:
+        - name: XXSCREEPS_BACKEND_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: xxscreeps-secrets
+              key: backend-secret
+        - name: XXSCREEPS_STEAM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: xxscreeps-secrets
+              key: steam-api-key
+      volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: config
+          mountPath: /data/.screepsrc.yaml
+          subPath: .screepsrc.yaml
+        - name: config
+          mountPath: /data/extra-dependencies.json
+          subPath: extra-dependencies.json
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: xxscreeps-data
+    - name: config
+      configMap:
+        name: xxscreeps-config
