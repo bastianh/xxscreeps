@@ -1,6 +1,7 @@
 export module screeps:room;
-import std;
 import :utility;
+import auto_js;
+import std;
 
 namespace screeps {
 
@@ -10,20 +11,22 @@ constexpr auto room_index_sentinel = room_index_t{0};
 
 // CostMatrix is a [50, 50] multi-dimensional array (mdspan cannot be nulled)
 // NOLINTNEXTLINE(modernize-avoid-c-arrays)
-using cost_matrix_type = const std::uint8_t (*)[ 50 ];
+export using cost_matrix_type = const std::uint8_t (*)[ 50 ];
 
 // Terrain data is packed 2 bits per tile, 2500 * 2 / 8 = 625
-using terrain_type = const std::uint8_t*;
+export using terrain_span_type = std::span<const std::uint8_t>;
+export using terrain_type = terrain_span_type::pointer;
 
 // maximum: longest chebyshev distance of whole map
 using cost_t = int;
+constexpr auto obstacle = cost_t{0};
 
 // Table of terrain costs [ plain, swamp, wall, [??] ]
 using terrain_cost_type = std::array<cost_t, 4>;
 
 // Stores coordinates of a room on the global world map.
 // For instance, "E1N1" -> { xx: 129, yy: 126 } -- this is implemented in JS
-struct room_location_t {
+export struct room_location_t {
 		struct hash;
 
 		room_location_t() = default;
@@ -66,8 +69,12 @@ struct room_terrain {
 
 		[[nodiscard]] constexpr auto cost_matrix_look(const terrain_cost_type& costs, unsigned xx, unsigned yy) const -> cost_t {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-			int cost = cost_matrix_[ xx % 50 ][ yy % 50 ];
-			return cost == 0 ? terrain_look(costs, xx, yy) : cost;
+			auto cost = cost_matrix_[ xx % 50 ][ yy % 50 ];
+			switch (cost) {
+				case 0: return terrain_look(costs, xx, yy);
+				case 255: return obstacle;
+				default: return cost;
+			}
 		}
 
 		terrain_type terrain_{};
@@ -86,10 +93,11 @@ class scope_table {
 			std::ranges::fill(reverse_table_, sentinel);
 		}
 
-		constexpr auto begin(this auto& self) { return self.table_.begin(); }
-		constexpr auto end(this auto& self) { return self.table_.end(); }
 		[[nodiscard]] constexpr auto size() const { return table_.size(); }
-		[[nodiscard]] constexpr auto operator[](this auto& self, std::size_t index) -> auto& { return self.table_[ index ]; }
+		constexpr auto begin(this auto& self) { return self.table_.begin(); }
+		constexpr auto data(this auto& self) { return self.table_.data(); }
+		constexpr auto end(this auto& self) { return self.table_.end(); }
+		constexpr auto operator[](this auto& self, std::size_t index) -> auto& { return self.table_[ index ]; }
 
 		constexpr auto clear() -> void {
 			for (const auto& value : table_) {
@@ -118,6 +126,36 @@ class scope_table {
 
 }; // namespace screeps
 
+// ---
+
+namespace js {
+using namespace screeps;
+
+template <>
+struct visit<void, room_location_t> {
+		template <class Accept>
+		constexpr auto operator()(room_location_t subject, const Accept& accept) const -> accept_target_t<Accept> {
+			auto value = std::int32_t{std::bit_cast<std::uint16_t>(subject)};
+			return accept(number_tag_of<std::int32_t>{}, *this, value);
+		}
+
+		consteval static auto types(auto /*recursive*/) { return util::type_pack{}; }
+};
+
+template <>
+struct accept<void, room_location_t> {
+		constexpr auto operator()(number_tag /*tag*/, visit_holder /*visit*/, auto&& subject) const -> room_location_t {
+			auto value = static_cast<std::uint16_t>(std::int32_t{std::forward<decltype(subject)>(subject)});
+			return std::bit_cast<room_location_t>(value);
+		}
+
+		consteval static auto types(auto /*recursive*/) { return util::type_pack{}; }
+};
+
+} // namespace js
+
+// ---
+
 namespace std {
 using namespace screeps;
 
@@ -125,8 +163,8 @@ template <>
 struct formatter<room_location_t> : formatter<std::string> {
 		using formatter<std::string>::format;
 		auto format(room_location_t room, std::format_context& context) const {
-			auto rx =room.xx - 0x80;
-			auto ry = room.yy  - 0x80;
+			auto rx = room.xx - 0x80;
+			auto ry = room.yy - 0x80;
 			auto ww = rx < 0;
 			auto nn = ry < 0;
 			auto output = std::format(

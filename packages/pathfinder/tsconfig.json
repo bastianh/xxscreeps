@@ -1,9 +1,6 @@
 {
-	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"types": [ "node" ],
+		"allowJs": false,
 	},
-	"references": [
-		{ "path": "../xxscreeps" },
-	]
+	"extends": "../../tsconfig.base.json",
 }

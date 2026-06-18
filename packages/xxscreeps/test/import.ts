@@ -1,7 +1,7 @@
 import type { Payload } from './export.js';
 import type { RoomObject } from 'xxscreeps/game/object.js';
 import * as fs from 'node:fs/promises';
-import { loadTerrain } from 'xxscreeps/driver/pathfinder.js';
+import { loadTerrain } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
@@ -131,8 +131,10 @@ export async function instantiateTestShard() {
 		shard.data.set('terrain', terrain),
 		shard.data.set('time', shard.time),
 		shard.data.sAdd('rooms', [ ...Fn.map(rooms, room => room.room.name) ]),
-		Promise.all(Fn.map(rooms, ({ room }) =>
-			shard.saveRoom(room.name, shard.time, room))),
+		Promise.all(Fn.map(rooms, async ({ room }) => {
+			await shard.saveRoom(room.name, shard.time, room);
+			await shard.copyRoomFromPreviousTick(room.name, shard.time + 1);
+		})),
 		Promise.all(Fn.map(Object.entries(users), ([ userId, username ]) =>
 			User.create(db, userId, username))),
 	]);

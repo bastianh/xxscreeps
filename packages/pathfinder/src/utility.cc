@@ -54,11 +54,6 @@ template <> struct uint_for_size<2> : std::type_identity<std::uint16_t> {};
 template <> struct uint_for_size<4> : std::type_identity<std::uint32_t> {};
 template <> struct uint_for_size<8> : std::type_identity<std::uint64_t> {};
 
-template <class Type>
-constexpr auto flatten(Type location) {
-	return std::bit_cast<uint_for_size_t<sizeof(location)>>(location);
-}
-
 // Holder for nominal types which cannot be implicitly converted between otherwise compatible
 // values.
 template <class Type, class>
@@ -79,31 +74,73 @@ class nominal {
 
 // Minimal polyfill for std::inplace_vector
 template <class Type, std::size_t Size>
-class inplace_vector {
+class inplace_vector : private std::allocator<Type> {
 	public:
-		static_assert(std::is_trivially_destructible_v<Type>);
-
 		[[nodiscard]] constexpr auto empty() const -> bool { return size_ == 0; }
-		[[nodiscard]] constexpr auto operator[](this auto& self, std::size_t index) -> auto& { return self.data_[ index ]; }
 		[[nodiscard]] constexpr auto size() const -> std::size_t { return size_; }
 		constexpr auto back(this auto& self) -> auto& { return self.data_[ self.size_ - 1 ]; }
 		constexpr auto begin(this auto& self) { return self.data_.begin(); }
-		constexpr auto clear() -> void { size_ = 0; }
 		constexpr auto end(this auto& self) { return self.data_.begin() + self.size_; }
+		constexpr auto data(this auto& self) { return self.data_.data(); }
+		constexpr auto operator[](this auto& self, std::size_t index) -> auto& { return self.data_[ index ]; }
 		constexpr auto front(this auto& self) -> auto& { return self.data_.front(); }
-		constexpr auto pop_back() -> void { --size_; }
+
+		constexpr auto clear() -> void {
+			while (size_ > 0) {
+				pop_back();
+			}
+		}
+
+		constexpr auto pop_back() -> void {
+			allocator_traits::destroy(*this, &back());
+			--size_;
+			if consteval {
+				allocator_traits::construct(*this, &data_[ size_ ]);
+			} else {
+				if constexpr (!std::is_trivially_destructible_v<Type>) {
+					allocator_traits::construct(*this, &data_[ size_ ]);
+				}
+			}
+		}
 
 		constexpr auto emplace_back(auto&&... args) -> void {
 			if (size_ >= Size) {
 				throw std::range_error{"capacity exceeded"};
 			}
-			data_[ size_ ] = Type{std::forward<decltype(args)>(args)...};
+			allocator_traits::destroy(*this, &data_[ size_ ]);
 			++size_;
+			allocator_traits::construct(*this, &data_[ size_ - 1 ], std::forward<decltype(args)>(args)...);
 		}
 
 	private:
+		using allocator_traits = std::allocator_traits<std::allocator<Type>>;
 		std::array<Type, Size> data_;
 		std::size_t size_ = 0;
+};
+
+// Recursive invocations will invoke the callback with subsequently later references of `Type...`
+// until there are no more. Then it will invoke it with no parameter.
+export template <class... Type>
+class resource_recursion_stack {
+	public:
+		constexpr auto operator()(const auto& callback) -> decltype(auto) {
+			auto index = index_++;
+			auto after = util::scope_exit{[ & ] { --index_; }};
+			return util::template_switch(
+				index,
+				util::sequence<sizeof...(Type)>,
+				util::overloaded{
+					[ & ] -> decltype(auto) { return callback(); },
+					[ & ]<std::size_t Index>(std::integral_constant<std::size_t, Index> /*index*/) -> decltype(auto) {
+						return callback(std::get<Index>(resources_));
+					},
+				}
+			);
+		}
+
+	private:
+		int index_ = 0;
+		std::tuple<Type...> resources_;
 };
 
 }; // namespace screeps

@@ -1,7 +1,6 @@
 import type { Room } from 'xxscreeps/game/room/room.js';
-import config from 'xxscreeps/config/index.js';
-import { importMods } from 'xxscreeps/config/mods/index.js';
-import { loadTerrain } from 'xxscreeps/driver/pathfinder.js';
+import { config } from 'xxscreeps/config/index.js';
+import { loadTerrain } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { consumeSet } from 'xxscreeps/engine/db/async.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { initializeIntentConstraints } from 'xxscreeps/engine/processor/index.js';
@@ -12,11 +11,9 @@ import { Fn } from 'xxscreeps/functional/fn.js';
 import { initializeGameEnvironment } from 'xxscreeps/game/index.js';
 import { World } from 'xxscreeps/game/map.js';
 import { makeBasicResponderHost } from 'xxscreeps/utility/responder.js';
-
-import 'xxscreeps/config/mods/import/game.js';
-
-await importMods('driver');
-await importMods('processor');
+import 'xxscreeps:mods/driver';
+import 'xxscreeps:mods/game';
+import 'xxscreeps:mods/processor';
 
 export type ProcessorRequest = LoadWorldRequest | InitializeRequest | ProcessRequest | FinalizeRequest;
 
@@ -39,6 +36,7 @@ type FinalizeRequest = {
 };
 
 // Hooks
+const workerInitialized = hooks.makeMapped('workerInitialized');
 const refreshRoom = hooks.makeMapped('refreshRoom');
 initializeGameEnvironment();
 initializeIntentConstraints();
@@ -53,6 +51,7 @@ let world: World;
 // Connect to storage
 using db = await Database.connect();
 using shard = await Shard.connect(db, config.shards[0]!.name);
+await Promise.all([ ...workerInitialized(shard) ]);
 
 // Create responder host and listen for requests
 await makeBasicResponderHost<ProcessorRequest>(import.meta.url, async message => {

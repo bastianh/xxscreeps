@@ -15,7 +15,15 @@ export const roomTickProcessors: RoomTickProcessor[] = [];
 export type ShardTickProcessor = (shard: Shard, time: number) => Promise<void> | void;
 export const shardTickProcessors: ShardTickProcessor[] = [];
 
+export type ShardInitializer = (shard: Shard) => Promise<void>;
+export const shardInitializers: ShardInitializer[] = [];
+
 export const hooks = makeHookRegistration<{
+	/**
+	 * Runs once after a processor worker has connected to the shard.
+	 */
+	workerInitialized: (shard: Shard) => Promise<void> | void;
+
 	/**
 	 * Runs after a processor phase has completed in a room.
 	 */

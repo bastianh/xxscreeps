@@ -1,5 +1,5 @@
 import { checkArguments } from 'xxscreeps/config/arguments.js';
-import config from 'xxscreeps/config/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { getConsoleChannel } from 'xxscreeps/engine/runner/model.js';
@@ -22,7 +22,7 @@ await using disposable = new AsyncDisposableStack();
 // asynchronously so the "disconnect" effect can't do it. Since the redis provider continually saves
 // on its own, saving even on ungraceful exit brings them more in line.
 disposable.defer(async () => {
-	await Promise.all([ db.save(), shard.save()	]);
+	await Promise.all([ db.save(), shard.save() ]);
 	console.log('💾 Engine shut down successfully.');
 });
 

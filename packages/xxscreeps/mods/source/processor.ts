@@ -1,5 +1,5 @@
 import type { RoomPosition } from 'xxscreeps/game/position.js';
-import { search } from 'xxscreeps/driver/pathfinder.js';
+import { search } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { registerObjectTickProcessor } from 'xxscreeps/engine/processor/index.js';
 import { mappedInvertedNumericComparator, mappedNumericComparator } from 'xxscreeps/functional/comparator.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
@@ -70,10 +70,7 @@ registerObjectTickProcessor(StructureKeeperLair, (keeperLair, context) => {
 		const body = [
 			...Fn.map(Fn.range(17), () => C.TOUGH),
 			...Fn.map(Fn.range(13), () => C.MOVE),
-			...Fn.pipe(
-				Fn.range(10),
-				$$ => Fn.map($$, () => [ C.ATTACK, C.RANGED_ATTACK ]),
-				$$ => Fn.concat($$)),
+			...Fn.transform(Fn.range(10), () => [ C.ATTACK, C.RANGED_ATTACK ]),
 		];
 		const newKeeper = Creep.create(keeperLair.pos, body, keeperName, kKeeperUserId);
 		newKeeper['#ageTime'] = Game.time + C.CREEP_LIFE_TIME - 1;

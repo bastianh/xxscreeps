@@ -1,10 +1,12 @@
+import type { ProcessorContext } from 'xxscreeps/engine/processor/room.js';
+import type { RoomObject } from 'xxscreeps/game/object.js';
 import { chainIntentChecks, checkRange, checkSafeMode, checkTarget } from 'xxscreeps/game/checks.js';
 import * as C from 'xxscreeps/game/constants/index.js';
 import { intents } from 'xxscreeps/game/index.js';
 import { captureDamage } from 'xxscreeps/game/processor.js';
 import { appendEventLog } from 'xxscreeps/game/room/event-log.js';
 import { Creep, calculatePower, checkCommon } from 'xxscreeps/mods/creep/creep.js';
-import { Structure } from 'xxscreeps/mods/structure/structure.js';
+import { Structure, notifyAttacked } from 'xxscreeps/mods/structure/structure.js';
 import { extend } from 'xxscreeps/utility/utility.js';
 
 // Creep extension declaration
@@ -91,32 +93,31 @@ extend(Creep, {
 });
 
 // Add counter attack
-// TODO: Look into why passing `applyDamage` as an argument to an anonymous function breaks the
-// babel transform
-const applyDamage = Creep.prototype['#applyDamage'];
-Creep.prototype['#applyDamage'] = function(this: Creep, power, type, source) {
-	applyDamage.call(this, power, type, source);
-	if (
-		type === C.EVENT_ATTACK_TYPE_MELEE &&
-			source instanceof Creep &&
-			!this.room.controller?.safeMode
-	) {
-		const counterAttack = calculatePower(this, C.ATTACK, C.ATTACK_POWER, 'attack');
-		if (counterAttack) {
-			const damage = captureDamage(source, counterAttack, C.EVENT_ATTACK_TYPE_HIT_BACK, null);
-			if (damage > 0) {
-				appendEventLog(this.room, {
-					event: C.EVENT_ATTACK,
-					objectId: this.id,
-					targetId: source.id,
-					attackType: C.EVENT_ATTACK_TYPE_HIT_BACK,
-					damage,
-				});
-				source['#applyDamage'](damage, C.EVENT_ATTACK_TYPE_HIT_BACK, this);
+Creep.prototype['#applyDamage'] = function(applyDamage) {
+	return function(this: Creep, power, type, source) {
+		applyDamage.call(this, power, type, source);
+		if (
+			type === C.EVENT_ATTACK_TYPE_MELEE &&
+				source instanceof Creep &&
+				!this.room.controller?.safeMode
+		) {
+			const counterAttack = calculatePower(this, C.ATTACK, C.ATTACK_POWER, 'attack');
+			if (counterAttack) {
+				const damage = captureDamage(source, counterAttack, C.EVENT_ATTACK_TYPE_HIT_BACK, null);
+				if (damage > 0) {
+					appendEventLog(this.room, {
+						event: C.EVENT_ATTACK,
+						objectId: this.id,
+						targetId: source.id,
+						attackType: C.EVENT_ATTACK_TYPE_HIT_BACK,
+						damage,
+					});
+					source['#applyDamage'](damage, C.EVENT_ATTACK_TYPE_HIT_BACK, this);
+				}
 			}
 		}
-	}
-};
+	};
+}(Creep.prototype['#applyDamage']);
 
 // Intent checks
 export type AttackTarget = Creep | Structure;
@@ -126,6 +127,7 @@ export function checkAttack(creep: Creep, target: AttackTarget) {
 		() => checkSafeMode(creep.room, C.ERR_NO_BODYPART),
 		() => checkTarget(target, Creep, Structure),
 		() => checkDestructible(target),
+		() => target['#invulnerable'] ? C.ERR_INVALID_TARGET : C.OK,
 		() => checkRange(creep, target, 1),
 	);
 }
@@ -137,6 +139,7 @@ export function checkRangedAttack(creep: Creep, target: AttackTarget) {
 		() => checkTarget(target, Creep, Structure),
 		() => checkDestructible(target),
 		() => checkRange(creep, target, 3),
+		() => target['#invulnerable'] ? C.ERR_INVALID_TARGET : C.OK,
 	);
 }
 
@@ -170,4 +173,36 @@ export function checkDestructible(target: Creep | Structure) {
 		return C.ERR_INVALID_TARGET;
 	}
 	return target.hits === undefined ? C.ERR_INVALID_TARGET : C.OK;
+}
+
+export function notifyAttackDamage(target: RoomObject, context: ProcessorContext, source: RoomObject | null) {
+	if (target instanceof Structure || target instanceof Creep) {
+		notifyAttacked(target, context, source ?? undefined);
+	}
+}
+
+export function applyAttackDamage(
+	target: RoomObject,
+	power: number,
+	type: number,
+	source: RoomObject | null,
+	context: ProcessorContext,
+) {
+	target['#applyDamage'](power, type, source ?? undefined);
+	notifyAttackDamage(target, context, source);
+}
+
+/**
+ * Like `captureDamage`, but also notifies any intermediate layer object (e.g. a rampart) that
+ * absorbed some damage on the way to `target`.
+ */
+export function captureDamageWithNotify(
+	target: RoomObject,
+	initialPower: number,
+	type: number,
+	source: RoomObject | null,
+	context: ProcessorContext,
+) {
+	return captureDamage(target, initialPower, type, source,
+		object => notifyAttackDamage(object, context, source));
 }

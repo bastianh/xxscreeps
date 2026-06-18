@@ -63,7 +63,7 @@ export class GameMap {
 
 	constructor(terrain: TerrainByRoom, accessibleRooms?: ReadonlySet<string>) {
 		this.#terrain = terrain;
-		this.#accessibleRooms = accessibleRooms ?? new Set(Object.keys(terrain));
+		this.#accessibleRooms = accessibleRooms ?? new Set(terrain.keys());
 		let maxX = -Infinity;
 		let minX = Infinity;
 		let maxY = -Infinity;
@@ -312,8 +312,8 @@ export class World {
 	/**
 	 * Returns an iterator of all rooms and terrain.
 	 */
-	entries() {
-		return Fn.map(this.terrain.entries(), ([ roomName, info ]) => [ roomName, info.terrain ] as const);
+	entries(): Iterable<[ string, Terrain.Terrain ]> {
+		return Fn.map(this.terrain, ([ roomName, info ]) => [ roomName, info.terrain ]);
 	}
 }
 

@@ -1,4 +1,4 @@
-import type { Manifest } from 'xxscreeps/config/mods/index.js';
+import type { Manifest } from 'xxscreeps/config/mods.js';
 
 export const manifest: Manifest = {
 	dependencies: [
@@ -15,6 +15,8 @@ export const manifest: Manifest = {
 		'xxscreeps/mods/nuker',
 		'xxscreeps/mods/observer',
 		'xxscreeps/mods/portal',
+		'xxscreeps/mods/powerbank',
+		'xxscreeps/mods/powerspawn',
 		'xxscreeps/mods/road',
 		'xxscreeps/mods/source',
 		'xxscreeps/mods/spawn',

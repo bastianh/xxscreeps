@@ -1,5 +1,5 @@
 import * as assert from 'node:assert';
-import { search } from 'xxscreeps/driver/pathfinder.js';
+import { search } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { describe, test } from 'xxscreeps/test/index.js';
 import { RoomPosition } from './position.js';
 

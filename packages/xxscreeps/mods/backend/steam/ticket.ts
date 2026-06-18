@@ -1,7 +1,8 @@
-import { Ajv, JSONSchemaType } from 'ajv';
+import type { JSONSchemaType } from 'ajv';
+import { Ajv } from 'ajv';
 import fetch from 'node-fetch';
 import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
-import config from 'xxscreeps/config/index.js';
+import { config } from 'xxscreeps/config/index.js';
 
 const ajv = new Ajv();
 

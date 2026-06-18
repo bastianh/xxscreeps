@@ -1,8 +1,7 @@
 import type { Effect } from 'xxscreeps/utility/types.js';
 import * as Timers from 'node:timers/promises';
-import config from 'xxscreeps/config/index.js';
-import { importMods } from 'xxscreeps/config/mods/index.js';
-import { loadTerrain } from 'xxscreeps/driver/pathfinder.js';
+import { config } from 'xxscreeps/config/index.js';
+import { loadTerrain } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { consumeSet, consumeSetMembers } from 'xxscreeps/engine/db/async.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { userToIntentRoomsSetKey, userToVisibleRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
@@ -12,8 +11,8 @@ import { Fn } from 'xxscreeps/functional/fn.js';
 import * as Async from 'xxscreeps/utility/async.js';
 import { handleInterruptSignal } from './signal.js';
 import { checkIsEntry, getServiceChannel } from './index.js';
+import 'xxscreeps:mods/driver';
 
-await importMods('driver');
 const isEntry = checkIsEntry();
 const log = config.runner.log ?? isEntry
 	? (message: string) => process.stderr.write(message)
@@ -37,7 +36,7 @@ using _signal = handleInterruptSignal(() => {
 using disposable = new DisposableStack();
 using db = await Database.connect();
 using shard = await Shard.connect(db, config.shards[0]!.name);
-const runnerSubscription =	disposable.adopt(
+const runnerSubscription = disposable.adopt(
 	await getRunnerChannel(shard).subscribe(),
 	subscription => subscription.disconnect());
 const maxConcurrency = config.runner.sandbox === 'unsafe' ? 1 : config.runner.concurrency;

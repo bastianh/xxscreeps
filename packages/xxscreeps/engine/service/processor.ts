@@ -1,6 +1,6 @@
 import type { ProcessorRequest } from 'xxscreeps/engine/processor/worker.js';
 import type { Effect } from 'xxscreeps/utility/types.js';
-import config from 'xxscreeps/config/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { consumeSet, consumeSortedSet, consumeSortedSetMembers } from 'xxscreeps/engine/db/async.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { getProcessorChannel, processRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
@@ -33,7 +33,7 @@ await using disposable = new AsyncDisposableStack();
 using db = await Database.connect();
 using shard = await Shard.connect(db, config.shards[0]!.name);
 const worldBlob = await shard.data.req('terrain', { blob: true });
-const processorSubscription =	disposable.adopt(
+const processorSubscription = disposable.adopt(
 	await getProcessorChannel(shard).subscribe(),
 	subscription => subscription.disconnect());
 

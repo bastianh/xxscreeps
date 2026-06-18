@@ -6,13 +6,12 @@ import type { World } from 'xxscreeps/game/map.js';
 import type { Room } from 'xxscreeps/game/room/index.js';
 import type { RawMemory } from 'xxscreeps/mods/memory/memory.js';
 import * as assert from 'node:assert';
-import config from 'xxscreeps/config/index.js';
-import { importMods } from 'xxscreeps/config/mods/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { consumeSet, consumeSortedSet } from 'xxscreeps/engine/db/async.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { initializeIntentConstraints } from 'xxscreeps/engine/processor/index.js';
-import { begetRoomProcessQueue, finalizeExtraRoomsSetKey, processRoomsSetKey, updateUserRoomRelationships, userToIntentRoomsSetKey, userToVisibleRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
+import { acquireIntentsForRoom, begetRoomProcessQueue, finalizeExtraRoomsSetKey, processRoomsSetKey, updateUserRoomRelationships, userToIntentRoomsSetKey, userToVisibleRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
 import { RoomProcessor } from 'xxscreeps/engine/processor/room.js';
 import { runShardTickProcessors } from 'xxscreeps/engine/processor/shard.js';
 import { PlayerInstance } from 'xxscreeps/engine/runner/instance.js';
@@ -25,11 +24,11 @@ import * as Memory from 'xxscreeps/mods/memory/memory.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { disposableToEffect, getOrSet } from 'xxscreeps/utility/utility.js';
 
-import 'xxscreeps/config/mods/import/game.js';
-
 // Simulate runs both main and worker logic in one process; load every slot either service would.
-await importMods('main');
-await importMods('processor');
+import 'xxscreeps:mods/game';
+import 'xxscreeps:mods/main';
+import 'xxscreeps:mods/processor';
+
 initializeGameEnvironment();
 initializeIntentConstraints();
 
@@ -216,7 +215,12 @@ export function simulate(rooms: Record<string, (room: Room) => void>) {
 						nextRoomInstances.set(roomName, room);
 						const context = new RoomProcessor(shard, world, room, time);
 						contexts.set(roomName, context);
-						for (const { userId, intents } of intentsByRoom.get(roomName) ?? []) {
+						// Player intents come from `player()` callbacks (in-memory). Cross-tick intents
+						// from `pushIntentsForRoomNextTick` land in scratch and must be drained the
+						// same way the production worker does — otherwise tests bypass them silently.
+						const scratchIntents = await acquireIntentsForRoom(shard, roomName);
+						const inMemoryIntents = intentsByRoom.get(roomName) ?? [];
+						for (const { userId, intents } of [ ...inMemoryIntents, ...scratchIntents ]) {
 							context.saveIntents(userId, intents);
 						}
 						await context.process();

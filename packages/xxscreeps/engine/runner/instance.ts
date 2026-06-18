@@ -5,7 +5,7 @@ import type { Shard } from 'xxscreeps/engine/db/index.js';
 import type { InitializationPayload, TickPayload, TickResult } from 'xxscreeps/engine/runner/index.js';
 import type { World } from 'xxscreeps/game/map.js';
 import type { Effect } from 'xxscreeps/utility/types.js';
-import config from 'xxscreeps/config/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { createSandbox } from 'xxscreeps/driver/sandbox/index.js';
 import * as RoomSchema from 'xxscreeps/engine/db/room.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
@@ -13,7 +13,7 @@ import * as User from 'xxscreeps/engine/db/user/index.js';
 import { publishRunnerIntentsForRooms } from 'xxscreeps/engine/processor/model.js';
 import { getConsoleChannel } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
-import { acquire } from 'xxscreeps/utility/async.js';
+import { acquire, mustNotReject } from 'xxscreeps/utility/async.js';
 import { clamp, hackyIterableToArray } from 'xxscreeps/utility/utility.js';
 import { getAckChannel, getRunnerUserChannel, getUsageChannel } from './model.js';
 import { hooks } from './symbols.js';
@@ -130,7 +130,7 @@ export class PlayerInstance {
 	disconnect() {
 		this.channel.disconnect();
 		this.codeChannel.disconnect();
-		this.sandbox?.dispose();
+		mustNotReject(this.sandbox?.dispose());
 		this.cleanup();
 	}
 
@@ -272,7 +272,7 @@ export class PlayerInstance {
 	}
 
 	private reset() {
-		this.sandbox?.dispose();
+		mustNotReject(this.sandbox?.dispose());
 		this.sandbox = undefined;
 		this.seenUsers.clear();
 		this.stale = false;

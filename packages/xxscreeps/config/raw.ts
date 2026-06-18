@@ -1,10 +1,10 @@
-import type { Schema } from './config.js';
+import type { Config } from './config.js';
 import * as fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import jsYaml from 'js-yaml';
 import { isTopThread } from 'xxscreeps/engine/service/index.js';
 
-function applyEnvironmentOverrides(config: Schema): Schema {
+function applyEnvironmentOverrides(config: Config): Config {
 	const backend = {
 		...(config.backend ?? {}),
 	};
@@ -34,14 +34,27 @@ const content = await async function() {
 		return await fs.readFile(configPath, 'utf8');
 	} catch {}
 }();
-const config = function(): Schema {
+const config = function(): Config {
 	if (content === undefined) {
 		if (isTopThread) {
 			console.warn('`.screepsrc.yaml` not found; using default configuration');
 		}
 		return applyEnvironmentOverrides({});
 	} else {
-		return applyEnvironmentOverrides(jsYaml.load(content) as Schema);
+		return applyEnvironmentOverrides(jsYaml.load(content) as Config);
 	}
 }();
+
+// Allow `runner.sandbox` override via global command-line flag
+const sandbox = process.argv.indexOf('--sandbox');
+if (sandbox !== -1) {
+	const value = process.argv.splice(sandbox, 2)[1];
+	if (value === 'experimental' || value === 'unsafe' || value === 'isolated') {
+		config.runner ??= {};
+		config.runner.sandbox = value;
+	} else {
+		throw new Error(`Invalid argument: --sandbox '${value}'`);
+	}
+}
+
 export default config;

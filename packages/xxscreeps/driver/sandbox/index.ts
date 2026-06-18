@@ -1,13 +1,8 @@
-import type { Transform } from '../webpack.js';
 import type { InspectorSession } from 'isolated-vm';
 import type { InitializationPayload, TickPayload, TickResult } from 'xxscreeps/engine/runner/index.js';
-import config from 'xxscreeps/config/index.js';
-import { configTransform } from 'xxscreeps/config/webpack.js';
+import { config } from 'xxscreeps/config/index.js';
 import { hooks } from 'xxscreeps/driver/index.js';
-import Privates from 'xxscreeps/driver/private/transform.js';
-import { schemaTransform } from 'xxscreeps/engine/schema/build/index.js';
-import { locateModule } from '../pathfinder.js';
-import { compile } from '../webpack.js';
+import { path } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 
 const didMakeSandbox = hooks.makeIterated('sandboxCreated');
 
@@ -35,49 +30,34 @@ export type TickCompletion =
 
 export interface Sandbox {
 	createInspectorSession: () => InspectorSession;
-
-	dispose: () => void;
-
-	initialize: (data: InitializationPayload) => Promise<void>;
+	dispose: () => Promise<void> | undefined;
 	run: (data: TickPayload) => Promise<TickCompletion>;
-}
-
-export function compileRuntimeSource(path: string, transform: Transform) {
-	return compile(import.meta.resolve(path), [
-		transform,
-		configTransform,
-		schemaTransform,
-		{
-			alias: {
-				'xxscreeps/engine/processor': 'xxscreeps/driver/runtime/tripwire',
-			},
-			babel: Privates,
-			externals: ({ request }) => {
-				if (request === '@xxscreeps/pathfinder') {
-					return 'globalThis["@xxscreeps/pathfinder"]';
-				}
-			},
-		},
-	]);
 }
 
 export async function createSandbox(userId: string, payload: InitializationPayload): Promise<Sandbox> {
 	const sandbox = await async function() {
 		switch (config.runner.sandbox ?? 'isolated') {
+			case 'experimental': {
+				const { ExperimentalSandbox } = await import('./experimental/index.js');
+				return ExperimentalSandbox.create(payload);
+			}
 			case 'isolated': {
 				const { IsolatedSandbox } = await import('./isolated/index.js');
-				return new IsolatedSandbox(payload);
+				const sandbox = new IsolatedSandbox(payload);
+				await sandbox.initialize(payload);
+				return sandbox;
 			}
 			case 'unsafe': {
 				const { NodejsSandbox } = await import('./nodejs/index.js');
-				return new NodejsSandbox();
+				const sandbox = new NodejsSandbox();
+				await sandbox.initialize(payload);
+				return sandbox;
 			}
 			default: throw new Error(`Invalid sandbox mode: ${config.runner.sandbox}`);
 		}
 	}();
-	await sandbox.initialize(payload);
 	didMakeSandbox(sandbox, userId);
 	return sandbox;
 }
 
-export const pathFinderBinaryPath = locateModule();
+export const pathFinderBinaryPath = path;

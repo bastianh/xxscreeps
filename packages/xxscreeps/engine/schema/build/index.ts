@@ -2,7 +2,7 @@ import type { Transform } from 'xxscreeps/driver/webpack.js';
 import type { Package } from 'xxscreeps/schema/build.js';
 import type { BufferView, Format } from 'xxscreeps/schema/index.js';
 import * as fs from 'node:fs';
-import config, { configPath } from 'xxscreeps/config/index.js';
+import { config, configPath } from 'xxscreeps/config/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { restoreLayout } from 'xxscreeps/schema/archive.js';
 import { build as buildSchema } from 'xxscreeps/schema/build.js';
@@ -73,23 +73,7 @@ export function makeUpgrader(info: Package, write: (value: any) => Readonly<Uint
 }
 
 /**
- * Webpack transformation which replaces this file with `./runtime.ts`.
- */
-export const schemaTransform: Transform = {
-	alias: {
-		'xxscreeps/engine/schema/build/index.js': 'xxscreeps/engine/schema/build/runtime.js',
-	},
-	externals: ({ request }) => {
-		if (request === 'xxscreeps/engine/schema/build/packages.js') {
-			return JSON.stringify(Object.fromEntries([ ...packages ].map(entry => [ entry[0], {
-				version: entry[1].version,
-			} ])));
-		}
-	},
-};
-
-/**
- * Generates module source text for `xxscreeps/engine/schema/build/packages.js`
+ * Generates module source text for `xxscreeps:packages`
  */
 export function makePackagesModule() {
 	const bundle = Fn.pipe(

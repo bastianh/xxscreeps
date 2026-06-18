@@ -1,4 +1,4 @@
-import type { Manifest } from 'xxscreeps/config/mods/index.js';
+import type { Manifest } from 'xxscreeps/config/mods.js';
 
 export const manifest: Manifest = {
 	dependencies: [
@@ -6,5 +6,5 @@ export const manifest: Manifest = {
 		'xxscreeps/mods/harvestable',
 		'xxscreeps/mods/resource',
 	],
-	provides: [ 'backend', 'game', 'processor', 'test' ],
+	provides: [ 'backend', 'game', 'main', 'processor', 'test' ],
 };

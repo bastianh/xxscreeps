@@ -1,4 +1,4 @@
-import { JSONSchemaType } from 'ajv';
+import type { JSONSchemaType } from 'ajv';
 import { bindMapRenderer, bindRenderer, bindTerrainRenderer, hooks, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
 import { userToIntentRoomsSetKey, userToPresenceRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
 import { StructureController } from './controller.js';
@@ -18,20 +18,20 @@ bindRenderer(StructureController, (controller, next) => {
 		safeMode: controller.room['#safeModeUntil'],
 		safeModeAvailable: controller.safeModeAvailable,
 		safeModeCooldown: controller['#safeModeCooldownTime'],
-		...reservationEndTime ? {
+		...reservationEndTime > 0 && {
 			reservation: {
 				endTime: reservationEndTime,
 				user: controller.room['#user'],
 			},
-		} : undefined,
-		...sign ? {
+		},
+		...sign && {
 			sign: {
 				datetime: sign.datetime,
 				time: sign.time,
 				text: sign.text,
 				user: sign.userId,
 			},
-		} : undefined,
+		},
 	};
 });
 
