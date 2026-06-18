@@ -11,8 +11,8 @@ resources:
   - redis-service.yaml
   - redis-deployment.yaml
   # Switch between the two deployment modes by selecting exactly one of these:
-  #- deployment-single.yaml
-  - deployment-multi.yaml
+  - deployment-single.yaml
+  #- deployment-multi.yaml
   - service.yaml
   - middleware.yaml
   - ingressroute.yaml
