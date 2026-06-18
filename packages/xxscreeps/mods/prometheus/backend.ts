@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import { threadId } from 'node:worker_threads';
 import { hooks } from 'xxscreeps/backend/index.js';
-import config from 'xxscreeps/config/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import type { Shard } from 'xxscreeps/engine/db/index.js';
 import { kMaxMemoryLength } from 'xxscreeps/mods/memory/memory.js';
 
