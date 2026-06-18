@@ -39,7 +39,8 @@ data:
   extra-dependencies.json: |
     {
       "dependencies": {
-        "xxscreeps-mod-client": "^0.2.9"
+        "xxscreeps-mod-client": "^0.2.9",
+        "screeps-client": "^0.7.1"
       }
     }
   redis.conf: |
