@@ -40,29 +40,27 @@ function writeFileAtomic(filePath, content) {
 }
 
 let packageJson = {};
-let packageJsonExists = true;
 try {
 	packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 } catch (error) {
 	if (error.code !== 'ENOENT') {
 		throw error;
 	}
-	packageJsonExists = false;
 }
 
-if (!packageJsonExists) {
-	try {
-		const extraDependencies = JSON.parse(fs.readFileSync(extraDependenciesPath, 'utf8'));
-		if (extraDependencies && typeof extraDependencies === 'object') {
-			packageJson = {
-				...packageJson,
-				...extraDependencies,
-			};
-		}
-	} catch (error) {
-		if (error.code !== 'ENOENT') {
-			throw error;
-		}
+// Reconcile user-managed dependencies from extra-dependencies.json on every start so that
+// adds, version bumps, and removals in the config take effect on the next restart (not only
+// on the first run). The config is authoritative for user dependencies; the bundled runtime
+// packages below are always pinned on top.
+let extraDependencies = {};
+try {
+	const parsed = JSON.parse(fs.readFileSync(extraDependenciesPath, 'utf8'));
+	if (parsed && typeof parsed === 'object') {
+		extraDependencies = parsed;
+	}
+} catch (error) {
+	if (error.code !== 'ENOENT') {
+		throw error;
 	}
 }
 
@@ -70,7 +68,7 @@ packageJson.name ??= 'xxscreeps-data';
 packageJson.private = true;
 packageJson.packageManager = packageManager;
 packageJson.dependencies = {
-	...(packageJson.dependencies ?? {}),
+	...(extraDependencies.dependencies ?? {}),
 	...desiredDependencies,
 };
 packageJson.pnpm = {
