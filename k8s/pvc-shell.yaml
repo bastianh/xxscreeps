@@ -12,7 +12,7 @@ spec:
     - name: registry-credentials
   containers:
     - name: shell
-      image: registry.zeta.w4rl0ck.dev/xxscreeps:27
+      image: registry.zeta.w4rl0ck.dev/xxscreeps:28
       command: ["/bin/sh", "-c", "sleep 36000"]
       workingDir: /data
       securityContext:
