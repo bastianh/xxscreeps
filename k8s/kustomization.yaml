@@ -20,4 +20,4 @@ resources:
 images:
   - name: xxscreeps
     newName: registry.zeta.w4rl0ck.dev/xxscreeps
-    newTag: "29"
+    newTag: "30"
