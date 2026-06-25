@@ -14,9 +14,8 @@ import 'xxscreeps:mods/main';
 import { hooks } from './symbols.js';
 
 checkIsEntry();
-
-using db = await Database.connect();
-using shard = await Shard.connect(db, config.shards[0]!.name);
+await using db = await Database.connect();
+await using shard = await Shard.connect(db, config.shards[0]!.name);
 await using disposable = new AsyncDisposableStack();
 
 // Open channels
@@ -63,6 +62,9 @@ const didInitialize = await async function() {
 	for await (const message of serviceMessages) {
 		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 		switch (message.type) {
+			case 'processorConnected':
+				await serviceChannel.publish({ type: 'mainConnected' });
+				break;
 			case 'processorInitialized':
 				if (await shard.scratch.zCard(activeRoomsKey) === rooms.length) {
 					await begetRoomProcessQueue(shard, shard.time);
@@ -100,6 +102,10 @@ async function tick() {
 	for await (const message of serviceMessages) {
 		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 		switch (message.type) {
+			case 'processorConnected':
+				await serviceChannel.publish({ type: 'mainConnected' });
+				break;
+
 			case 'processorInitialized':
 				await processorChannel.publish({ type: 'process', time });
 				break;

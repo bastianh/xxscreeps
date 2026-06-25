@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/require-await */
 import type { MaybePromises } from './responder.js';
-import type * as P from 'xxscreeps/engine/db/storage/provider.js';
+import type * as Pr from 'xxscreeps/engine/db/storage/provider.js';
 import type { KeyvalScript } from 'xxscreeps/engine/db/storage/script.js';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import { registerStorageProvider } from 'xxscreeps/engine/db/storage/register.js';
+import { mappedNumericComparator } from 'xxscreeps/functional/comparator.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { latin1ToBuffer, typedArrayToString } from 'xxscreeps/utility/string.js';
 import { getOrSet } from 'xxscreeps/utility/utility.js';
@@ -17,19 +18,22 @@ registerStorageProvider([ 'file', 'local' ], 'keyval', url => {
 	return connect(url, LocalKeyValClient, LocalKeyValHost, create);
 });
 
-export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
+export class LocalKeyValResponder implements AsyncDisposable, MaybePromises<Pr.KeyValProvider> {
+	private readonly disposable;
 	private readonly blob;
 	private readonly data = new Map<string, any>();
 	private readonly expires = new Set<string>();
-	private readonly scripts = new Map<string, (instance: LocalKeyValResponder, keys: string[], argv: P.Value[]) => any>();
+	private readonly scripts = new Map<string, (instance: LocalKeyValResponder, keys: string[], argv: Pr.Value[]) => any>();
 	private readonly url;
 	private saveWait: Promise<void> | undefined;
 
 	constructor(
+		disposable: AsyncDisposableStack,
 		url: URL | undefined,
 		blob: BlobStorage,
 		payload: string | undefined,
 	) {
+		this.disposable = disposable;
 		this.url = url;
 		this.blob = blob;
 		if (payload) {
@@ -56,7 +60,8 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		path = new URL('./', path);
 
 		// Instantiate blob storage, also acquires lock
-		const [ blobEffect, blob ] = await BlobStorage.create(path);
+		await using disposable = new AsyncDisposableStack();
+		const blob = disposable.use(await BlobStorage.create(path));
 
 		// Load saved payload
 		const [ url, payload ] = await async function() {
@@ -73,11 +78,14 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}();
 
 		// Make host, convert disposable to effect
-		const host = new LocalKeyValResponder(url, blob, payload);
-		return [ blobEffect, host ] as const;
+		return new LocalKeyValResponder(disposable.move(), url, blob, payload);
 	}
 
-	copy(from: string, to: string, options?: P.Copy) {
+	async [Symbol.asyncDispose]() {
+		return this.disposable.disposeAsync();
+	}
+
+	copy(from: string, to: string, options?: Pr.Copy) {
 		const value = this.data.get(from);
 		if (value === undefined) {
 			return this.blob.copy(from, to, options) as never;
@@ -106,7 +114,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	delEx(key: string, options: P.DelEx) {
+	delEx(key: string, options: Pr.DelEx) {
 		if (this.data.get(key) === options.eq) {
 			this.remove(key);
 			return true;
@@ -128,7 +136,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		this.del(key);
 	}
 
-	get(key: string, options?: P.AsBlob) {
+	get(key: string, options?: Pr.AsBlob) {
 		if (options?.blob) {
 			return this.blob.get(key) as never;
 		} else {
@@ -148,7 +156,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	req(key: string, options?: P.AsBlob) {
+	req(key: string, options?: Pr.AsBlob) {
 		if (options?.blob) {
 			return this.blob.req(key) as never;
 		} else {
@@ -160,7 +168,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	set(key: string, value: P.Value, options?: P.Set): any {
+	set(key: string, value: Pr.Value, options?: Pr.Set): any {
 		if (ArrayBuffer.isView(value)) {
 			return this.blob.set(key, value, options) as never;
 		}
@@ -245,7 +253,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		return Fn.fromEntries(Fn.map(fields, field => [ field, map?.get(field) ?? null ])) as never;
 	}
 
-	hSet(key: string, field: string, value: P.Value, options?: P.HSet) {
+	hSet(key: string, field: string, value: Pr.Value, options?: Pr.HSet) {
 		const map: Map<string, any> = getOrSet(this.data, key, () => new Map());
 		const has = map.has(field);
 		if (options?.if === 'NX' && has) {
@@ -256,10 +264,10 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	hmset(key: string, fields: Iterable<readonly [ string, P.Value ]> | Record<string, P.Value>) {
+	hmset(key: string, fields: Iterable<readonly [ string, Pr.Value ]> | Record<string, Pr.Value>) {
 		const map: Map<string, any> = getOrSet(this.data, key, () => new Map());
 		const iterable = Symbol.iterator in fields
-			? fields as Iterable<[ string, P.Value ]> :
+			? fields as Iterable<[ string, Pr.Value ]> :
 			Object.entries(fields);
 		for (const [ field, value ] of iterable) {
 			map.set(field, value);
@@ -290,7 +298,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		);
 	}
 
-	rPush(key: string, elements: P.Value[]) {
+	rPush(key: string, elements: Pr.Value[]) {
 		const list: string[] | undefined = this.data.get(key);
 		const strings = Fn.map(elements, element => element) as Iterable<string>;
 		if (list) {
@@ -335,12 +343,11 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		const sets = Fn.pipe(
 			Fn.concat([ [ key ], keys ]),
 			$$ => Fn.map($$, (key): Set<string> | undefined => this.data.get(key)),
-			$$ => Fn.filter($$),
 			$$ => [ ...$$ ]);
-		sets.sort((left, right) => left.size - right.size);
-		const first = sets.shift();
-		if (sets.length > 0) {
-			return [ ...Fn.filter(first!, member => sets.every(set => set.has(member))) ];
+		if (sets.every(set => set !== undefined)) {
+			sets.sort(mappedNumericComparator(set => set.size));
+			const first = sets.shift()!;
+			return [ ...Fn.filter(first, member => sets.every(set => set.has(member))) ];
 		} else {
 			return [];
 		}
@@ -401,11 +408,15 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 			$$ => Fn.filter($$),
 			$$ => Fn.concat($$),
 			$$ => new Set($$));
-		this.data.set(key, out);
+		if (out.size === 0) {
+			this.data.delete(key);
+		} else {
+			this.data.set(key, out);
+		}
 		return out.size;
 	}
 
-	zAdd(key: string, members: [ number, string ][], options?: P.ZAdd): any {
+	zAdd(key: string, members: [ number, string ][], options?: Pr.ZAdd): any {
 		const set = getOrSet<string, SortedSet>(this.data, key, () => new SortedSet());
 		try {
 			const range = function() {
@@ -462,15 +473,11 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		return score;
 	}
 
-	zInterStore(key: string, keys: string[], options?: P.ZAggregate) {
+	zInterStore(key: string, keys: string[], options?: Pr.ZAggregate) {
 		// Fetch sets first because you can use this command to store a set back into itself
-		const sets = Fn.pipe(
-			keys,
-			$$ => Fn.map($$, (key): SortedSet => this.data.get(key)),
-			$$ => Fn.filter($$),
-			$$ => [ ...$$ ]);
+		const sets = [ ...Fn.map(keys, (key): SortedSet => this.data.get(key)) ];
 		const out = function() {
-			const smallest = Fn.minimum(sets, (left, right) => left.size - right.size);
+			const smallest = Fn.minimum(sets, mappedNumericComparator(set => set.size));
 			if (!smallest) {
 				return new SortedSet();
 			}
@@ -510,7 +517,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	zRange(key: string, min: number | string, max: number | string, options?: P.ZRange): any {
+	zRange(key: string, min: number | string, max: number | string, options?: Pr.ZRange): any {
 		const set: SortedSet | undefined = this.data.get(key);
 		if (set) {
 			const allMatching = function() {
@@ -558,7 +565,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	zRangeStore(into: string, from: string, min: number | string, max: number | string, options?: P.ZRange) {
+	zRangeStore(into: string, from: string, min: number | string, max: number | string, options?: Pr.ZRange) {
 		const set: SortedSet | undefined = this.data.get(from);
 		if (set) {
 			const range: string[] = this.zRange(from, min, max, options);
@@ -575,7 +582,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	zRangeWithScores(key: string, min: number, max: number, options?: P.ZRange) {
+	zRangeWithScores(key: string, min: number, max: number, options?: Pr.ZRange) {
 		const set: SortedSet | undefined = this.data.get(key);
 		if (set) {
 			switch (options?.by) {
@@ -627,7 +634,7 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		}
 	}
 
-	zUnionStore(key: string, keys: string[], options?: P.ZAggregate) {
+	zUnionStore(key: string, keys: string[], options?: Pr.ZAggregate) {
 		const out = new SortedSet((() => {
 			if (options?.weights) {
 				// With WEIGHTS each set needs to be applied one at a time
@@ -657,17 +664,17 @@ export class LocalKeyValResponder implements MaybePromises<P.KeyValProvider> {
 		return out.size;
 	}
 
-	eval(script: KeyvalScript, keys: string[], argv: P.Value[]) {
+	eval(script: KeyvalScript, keys: string[], argv: Pr.Value[]) {
 		return this.evaluateInline(script.local, keys, argv);
 	}
 
 	load() {}
 
-	async evaluateInline(script: string, keys: string[], argv: P.Value[]) {
+	async evaluateInline(script: string, keys: string[], argv: Pr.Value[]) {
 		const fn = getOrSet(this.scripts, script, () => {
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
 			const impl = new Function(`return ${script}`)();
-			return (instance, keys: string[], argv: P.Value[]) => impl(instance, keys, argv);
+			return (instance, keys: string[], argv: Pr.Value[]) => impl(instance, keys, argv);
 		});
 		return fn(this, keys, argv);
 	}
@@ -730,7 +737,7 @@ class LocalKeyValClient extends makeClient(LocalKeyValResponder) {
 
 	// https://github.com/microsoft/TypeScript/issues/27689
 	// @ts-expect-error
-	eval(script: KeyvalScript, keys: string[], argv: P.Value[]) {
+	eval(script: KeyvalScript, keys: string[], argv: Pr.Value[]) {
 		return this.evaluateInline(script.local, keys, argv);
 	}
 }

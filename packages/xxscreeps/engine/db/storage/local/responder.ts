@@ -1,13 +1,14 @@
 import type { LocalPayloadPort, UnknownMessage, WorkerConnectMessage } from './port.js';
 import type { Worker } from 'node:worker_threads';
-import type { Effect, MaybePromise } from 'xxscreeps/utility/types.js';
+import type { MaybePromise } from 'xxscreeps/utility/types.js';
 import { parentPort } from 'node:worker_threads';
 import { config, configPath } from 'xxscreeps/config/index.js';
 import { isTopThread } from 'xxscreeps/engine/service/index.js';
+import { Fn } from 'xxscreeps/functional/fn.js';
 import { mustNotReject } from 'xxscreeps/utility/async.js';
 import { FileSystemLock } from 'xxscreeps/utility/file-lock.js';
 import { runOnce } from 'xxscreeps/utility/memoize.js';
-import { asyncDisposableToEffect, disposableToEffect } from 'xxscreeps/utility/utility.js';
+import { disposableToEffect } from 'xxscreeps/utility/utility.js';
 import { makeSocketPortConnection, makeSocketPortListener, makeWorkerPortConnection, makeWorkerPortListener } from './port.js';
 
 /**
@@ -69,22 +70,49 @@ interface ResponseRejectMessage extends ResponseCompletionMessage {
 
 type ResponseMessage = ResponseResolveMessage | ResponseRejectMessage;
 
+// eslint-disable-next-line @typescript-eslint/consistent-indexed-object-style
+interface ResponderImplementation extends SharedResponder {
+	[Method: string]: (...args: unknown[]) => MaybePromise<unknown>;
+}
+
 type SocketResponderSend = (message: RequestMessage) => void;
 
-// Used in host isolate
-const responderHostsByName = new Map<string, { effect: Effect; host: ResponderHost }>();
+export abstract class SharedResponder implements AsyncDisposable {
+	#refs = 0;
 
-abstract class ResponderClient {
+	static ref<Type extends SharedResponder>(instance: Type) {
+		++instance.#refs;
+		return instance;
+	}
+
+	async [Symbol.asyncDispose]() {
+		const refs = --this.#refs;
+		if (refs === 0) {
+			await this.disposeAsync();
+		} else if (refs < 0) {
+			throw new Error(`${this.constructor.name}: disposed too many times`);
+		}
+	}
+
+	protected abstract disposeAsync(): Promise<void>;
+}
+
+// Used in host isolate
+const responderHostsByName = new Map<string, ResponderHost>();
+
+abstract class ResponderClient implements AsyncDisposable {
+	readonly #disposable;
 	#disconnected = false;
 	#requestId = 0;
 	readonly #send;
 	readonly #requests = new Map<number, PromiseWithResolvers<unknown>>();
 
-	constructor(send: SocketResponderSend) {
+	constructor(disposable: AsyncDisposable, send: SocketResponderSend) {
+		this.#disposable = disposable;
 		this.#send = send;
 	}
 
-	static async connect<Type extends ResponderClient>(constructor: new(send: SocketResponderSend) => Type, url: URL) {
+	static async connect<Type extends ResponderClient>(constructor: new(disposable: AsyncDisposable, send: SocketResponderSend) => Type, url: URL) {
 		// Connect to port by socket or worker request
 		await using disposable = new AsyncDisposableStack();
 		const port = await function() {
@@ -101,7 +129,7 @@ abstract class ResponderClient {
 		disposable.use(port);
 
 		// Forward requests to port
-		const client = disposable.adopt(new constructor(port.send), client => client.#disconnect());
+		const client = new constructor(disposable.move(), port.send);
 		mustNotReject(async function() {
 			for await (const message of port.messages) {
 				const { requestId } = message;
@@ -116,7 +144,7 @@ abstract class ResponderClient {
 		}());
 
 		// Return effect and client
-		return [ asyncDisposableToEffect(disposable.move()), client ] as const;
+		return client;
 	}
 
 	static request(client: ResponderClient, method: string, payload: unknown[]) {
@@ -130,7 +158,8 @@ abstract class ResponderClient {
 		return deferred.promise;
 	}
 
-	#disconnect() {
+	async [Symbol.asyncDispose]() {
+		await this.#disposable[Symbol.asyncDispose]();
 		if (this.#disconnected) {
 			throw new Error('Already disconnected responder client');
 		}
@@ -144,64 +173,55 @@ abstract class ResponderClient {
 	}
 }
 
-abstract class ResponderHost<Type = any> {
-	#refs = 0;
+abstract class ResponderHost<Type extends ResponderImplementation = ResponderImplementation> extends SharedResponder {
 	readonly #disposable = new AsyncDisposableStack();
-	readonly #instance: Type | Record<string, (...args: unknown[]) => unknown>;
+	readonly #instance: Type;
 	readonly #name: string;
 
 	constructor(name: string, instance: Type, maybeServer: AsyncDisposable | undefined) {
+		super();
 		this.#instance = instance;
 		this.#name = name;
+		this.#disposable.use(instance);
 		this.#disposable.use(maybeServer);
 	}
 
 	static connect(host: ResponderHost, port: LocalPayloadPort<ResponseMessage, RequestMessage>) {
 		const instance = host.#instance;
 		mustNotReject(async function() {
-			for await (const message of port.messages) {
-				const { method, payload, requestId } = message;
-				mustNotReject(async function() {
+			// TODO: I want a version of `Fn.distribute` with unlimited throughput bound by the receiver's
+			// speed.
+			const responses = Fn.distribute(port.messages, 16, async function*(messages): AsyncIterable<ResponseMessage> {
+				for await (const message of messages) {
+					const { method, payload, requestId } = message;
 					try {
-						port.send({
+						yield {
 							requestId,
-							payload: await instance[method](...payload),
-						});
+							payload: await instance[method]!(...payload),
+						};
 					} catch (error: any) {
-						port.send({
+						yield {
 							requestId,
+							// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
 							payload: error.stack,
 							rejection: true,
-						});
+						};
 					}
-				}());
+				}
+			});
+			for await (const response of responses) {
+				port.send(response);
 			}
 		}());
 	}
 
 	static invoke(host: ResponderHost, method: string, payload: unknown[]) {
-		return host.#instance[method](...payload);
+		return host.#instance[method]!(...payload);
 	}
 
-	static ref(host: ResponderHost) {
-		return host.#ref();
-	}
-
-	#ref(): Effect {
-		let disconnected = false;
-		++this.#refs;
-		return () => {
-			if (disconnected) {
-				throw new Error('Already disconnected responder host');
-			}
-			disconnected = true;
-			if (--this.#refs === 0) {
-				const { effect } = responderHostsByName.get(this.#name)!;
-				responderHostsByName.delete(this.#name);
-				effect();
-				mustNotReject(this.#disposable.disposeAsync());
-			}
-		};
+	protected async disposeAsync() {
+		responderHostsByName.delete(this.#name);
+		await this.#disposable.disposeAsync();
 	}
 }
 
@@ -219,20 +239,19 @@ export type MaybePromises<Type> = {
 export async function connect<
 	Client extends ResponderClient,
 	Host extends ResponderHost,
-	Type,
+	Type extends AsyncDisposable,
 >(
 	url: URL,
 	clientConstructor: new() => Client,
 	hostConstructor: new(name: string, instance: Type, maybeServer: AsyncDisposable | undefined) => Host,
-	create: () => MaybePromise<readonly [ Effect, Type ]>,
-): Promise<readonly [ Effect, Client | Host ]> {
+	create: () => MaybePromise<Type>,
+): Promise<Client | Host> {
 	const name = `${url}`;
 	if (isTopThread && !await isSiblingProcess()) {
 		const responder = responderHostsByName.get(name);
 		if (responder) {
 			// Connecting to a responder from the parent just returns the host object
-			const effect = ResponderHost.ref(responder.host);
-			return [ effect, responder.host as Host ] as const;
+			return SharedResponder.ref(responder) satisfies ResponderHost as Host;
 		} else {
 			// Only one responder per name should exist
 			if (responderHostsByName.has(name)) {
@@ -247,10 +266,10 @@ export async function connect<
 						return makeSocketPortListener<ResponseMessage, RequestMessage>(socketPath, port => ResponderHost.connect(host, port));
 					}
 				}();
-				const [ effect, instance ] = await create();
+				const instance = await create();
 				const host = new hostConstructor(name, instance, maybeServer);
-				responderHostsByName.set(name, { effect, host });
-				return [ ResponderHost.ref(host), host ];
+				responderHostsByName.set(name, host);
+				return SharedResponder.ref(host);
 			} catch (error) {
 				responderHostsByName.delete(name);
 				throw error;
@@ -269,7 +288,7 @@ export function initializeWorker(worker: Worker) {
 		makeWorkerPortListener(worker, name => {
 			const responder = responderHostsByName.get(name);
 			if (responder) {
-				return port => ResponderHost.connect(responder.host, port as LocalPayloadPort<ResponseMessage, RequestMessage>);
+				return port => ResponderHost.connect(responder, port as LocalPayloadPort<ResponseMessage, RequestMessage>);
 			}
 		});
 	} else {
@@ -299,7 +318,7 @@ function applyResponderMethods(
 }
 
 /** @internal */
-export function makeClient<Type>(constructor: abstract new(...args: any[]) => Type) {
+export function makeClient<Type extends AsyncDisposable, Params extends unknown[]>(constructor: abstract new(...args: Params) => Type) {
 
 	// Create client wrapper class for this responder
 	class Client extends ResponderClient {
@@ -310,7 +329,7 @@ export function makeClient<Type>(constructor: abstract new(...args: any[]) => Ty
 	});
 
 	// Add in types
-	return Client as never as new() => ResponderClient & WithPromises<Type>;
+	return Client as unknown as new() => ResponderClient & WithPromises<Type>;
 }
 
 /** @internal */
@@ -325,5 +344,5 @@ export function makeHost<Type>(constructor: abstract new(...args: any[]) => Type
 	});
 
 	// Add in types
-	return Host as never as new(name: string, instance: Type) => ResponderHost & WithPromises<Type>;
+	return Host as unknown as new(name: string, instance: Type) => ResponderHost & WithPromises<Type>;
 }

@@ -1,51 +1,36 @@
-import type { AsyncEffectAndResult, Effect } from './types.js';
+import type { Effect } from './types.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 
-// Given a series of effect-returning promises this waits for them all to resolve and returns a
-// single effect that owns all the underlying effects. In the case that one throws the successful
-// effects are destroyed.
-export function acquire<Type extends AsyncEffectAndResult[]>(...async: [ ...Type ]): Promise<[ Effect, {
-	[Key in keyof Type]: Type[Key] extends AsyncEffectAndResult<infer Result> ? Result : never;
-} ]>;
-export function acquire(...async: AsyncEffectAndResult[]): Promise<[ Effect, any ]> {
-	// Not implemented as an async function to keep original stack traces
-	return new Promise((resolve, reject) => {
-		void Promise.allSettled(async).then(settled => {
-			let effect: Effect = () => {};
-			const results = [];
-			let rejected = false;
-			for (const result of settled) {
-				if (result.status === 'fulfilled') {
-					const { value } = result;
-					if (Array.isArray(value)) {
-						// Returned `[ effect, result ]`
-						const nextEffect = value[0];
-						if (nextEffect) {
-							const prevEffect = effect;
-							effect = () => { prevEffect(); nextEffect(); };
-						}
-						results.push(value[1]);
-					} else {
-						// Returned `effect`
-						if (value) {
-							const prevEffect = effect;
-							effect = () => { prevEffect(); (value as Effect)(); };
-						}
-						results.push(undefined);
-					}
-				} else if (!rejected) {
-					// Reject with first error found
-					rejected = true;
-					reject(result.reason);
-				}
-			}
-			if (rejected) {
-				effect();
-			} else {
-				resolve([ effect, results as never ]);
-			}
-		});
-	});
+/**
+ * Given a series of promises this waits for them all to resolve and invokes `acquire` on each one
+ * that resolved as completed.
+ */
+export async function acquireWith<
+	Type extends PromiseLike<unknown>[],
+>(
+	acquire: (fn: Awaited<Type[number]>) => void,
+	...async: Type
+): Promise<{
+	[Key in keyof Type]: Awaited<Type[Key]>
+}>;
+
+export async function acquireWith(acquire: (fn: unknown) => void, ...async: PromiseLike<unknown>[]) {
+	const settled = await Promise.allSettled(async);
+	for (const result of settled) {
+		if (result.status === 'fulfilled') {
+			acquire(result.value);
+		}
+	}
+	if (settled.every(result => result.status === 'fulfilled')) {
+		return settled.map(result => result.value);
+	} else {
+		const threw = settled.filter(result => result.status === 'rejected');
+		if (threw.length === 1) {
+			throw threw[0]!.reason;
+		} else {
+			throw new AggregateError(threw);
+		}
+	}
 }
 
 /**

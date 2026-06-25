@@ -1,4 +1,6 @@
 import * as assert from 'node:assert/strict';
+import { Fn } from 'xxscreeps/functional/fn.js';
+import { makeAbstractIterateWithRangeTo } from 'xxscreeps/game/direction.js';
 import { makeSignedRoomName, parseSignedRoomName } from './name.js';
 
 // Sector centers are the rooms numbered `{..}5` on each axis; the highway ring sits on the `{..}0`
@@ -12,42 +14,41 @@ function isCentralCoord(rx: number, ry: number): boolean {
 	return isCentralAxis(rx) && isCentralAxis(ry);
 }
 
+const iterateRoomCoordinatesWithRange = makeAbstractIterateWithRangeTo(-Infinity, Infinity);
+
 export function isCentralRoom(roomName: string): boolean {
 	const { rx, ry } = parseSignedRoomName(roomName);
 	return isCentralCoord(rx, ry);
 }
 
+// A highway axis sits exactly 5 rooms from a sector-center axis (the `…0` boundary). Defined off
+// `isCentralAxis` so the W/N sign phase-shift is handled in one place rather than re-derived.
+function isHighwayAxis(coord: number): boolean {
+	return isCentralAxis(coord - 5) || isCentralAxis(coord + 5);
+}
+
+// A highway room borders a sector on at least one axis — equivalently, `sectorsForRoom` is
+// non-empty. Centers and interior rooms are not highways.
+export function isHighwayRoom(roomName: string): boolean {
+	const { rx, ry } = parseSignedRoomName(roomName);
+	return isHighwayAxis(rx) || isHighwayAxis(ry);
+}
+
 // 11-room ring around a sector center: 4 corners + 9 rooms per side = 40 rooms total. Emission
 // order is load-bearing (deposit placement consumes it), so corners precede the interleaved sides.
-export function *sectorEdgeRooms(centralRoom: string): Iterable<string> {
+export function sectorEdgeRooms(centralRoom: string): Iterable<string> {
 	const { rx, ry } = parseSignedRoomName(centralRoom);
 	assert.ok(isCentralCoord(rx, ry));
-	yield makeSignedRoomName(rx - 5, ry - 5);
-	yield makeSignedRoomName(rx + 5, ry - 5);
-	yield makeSignedRoomName(rx - 5, ry + 5);
-	yield makeSignedRoomName(rx + 5, ry + 5);
-	for (let ii = -4; ii <= 4; ++ii) {
-		yield makeSignedRoomName(rx + ii, ry - 5);
-		yield makeSignedRoomName(rx + ii, ry + 5);
-		yield makeSignedRoomName(rx - 5, ry + ii);
-		yield makeSignedRoomName(rx + 5, ry + ii);
-	}
+	return Fn.map(iterateRoomCoordinatesWithRange(rx, ry, 5), ([ xx, yy ]) => makeSignedRoomName(xx, yy));
 }
 
 // Inverse: which centers claim this room as a ring member. Edge rooms belong to 1-2 sectors;
 // corner rooms to 4. Centers and interior rooms yield nothing.
 export function *sectorsForRoom(roomName: string): Iterable<string> {
 	const { rx, ry } = parseSignedRoomName(roomName);
-	for (let dx = -5; dx <= 5; ++dx) {
-		if (isCentralAxis(rx + dx)) {
-			for (let dy = -5; dy <= 5; ++dy) {
-				if (isCentralAxis(ry + dy)) {
-					// Ring member iff exactly 5 from the center on at least one axis; the offset is `dx`/`dy`.
-					if (Math.abs(dx) === 5 || Math.abs(dy) === 5) {
-						yield makeSignedRoomName(rx + dx, ry + dy);
-					}
-				}
-			}
+	for (const [ nx, ny ] of iterateRoomCoordinatesWithRange(rx, ry, 5)) {
+		if (isCentralAxis(nx) && isCentralAxis(ny)) {
+			yield makeSignedRoomName(nx, ny);
 		}
 	}
 }

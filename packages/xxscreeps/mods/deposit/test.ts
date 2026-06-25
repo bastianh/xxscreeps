@@ -12,10 +12,10 @@ import { makeSectorRadiusFilter, sectorEdgeRooms } from 'xxscreeps/game/room/sec
 import { create as createCreep } from 'xxscreeps/mods/creep/creep.js';
 import { DEPOSIT_DECAY_TIME, DEPOSIT_EXHAUST_MULTIPLY, DEPOSIT_EXHAUST_POW } from 'xxscreeps/mods/mineral/constants.js';
 import { assert, describe, simulate, test } from 'xxscreeps/test/index.js';
-import { hashMix } from 'xxscreeps/utility/utility.js';
+import { deterministicRandomForTesting } from 'xxscreeps/utility/utility.js';
 import { Deposit } from './deposit.js';
+import { depositTypeForRoom, loadSectorDeposits, setDepositBootstrapScatterForTesting } from './main.js';
 import { scheduleSector } from './model.js';
-import { depositTypeForRoom, loadSectorDeposits, setDepositBootstrapScatterForTesting, setDepositPlaceRandomForTesting } from './place.js';
 
 interface DepositSimOptions {
 	body?: PartType[];
@@ -74,7 +74,9 @@ describe('Deposit', () => {
 		await poke('W1N1', '100', (_Game, room) => {
 			const deposit = room['#lookFor'](C.LOOK_DEPOSITS)[0];
 			assert.strictEqual(deposit?.lastCooldown, cooldown(1000));
-			assert.strictEqual(deposit.cooldown, cooldown(1000));
+			// Observable cooldown is the curve minus 1: written in the processor at gameTime T,
+			// read in user code at runtimeData.time T+1.
+			assert.strictEqual(deposit.cooldown, cooldown(1000) - 1);
 		});
 	}));
 
@@ -115,17 +117,11 @@ describe('Deposit', () => {
 	}));
 });
 
-// Tiny LCG so tests pick rooms/positions deterministically.
-function makeRng(seed = 1): () => number {
-	let state = hashMix(seed);
-	return () => (state = hashMix(state)) / 0xffffffff + 0.5;
-}
-
 // Deterministic placement RNG plus a zero-scatter bootstrap (so the single-sector test world's
 // W5N5 comes due the moment it's seeded), scoped to the test and restored on disposal.
 function withFixedPlacement(seed = 1): Disposable {
 	const stack = new DisposableStack();
-	stack.use(setDepositPlaceRandomForTesting(makeRng(seed)));
+	stack.use(deterministicRandomForTesting(seed));
 	stack.use(setDepositBootstrapScatterForTesting(() => 0));
 	return stack;
 }
@@ -217,7 +213,7 @@ describe('Deposit placement', () => {
 			room['#insertObject'](createCreep(new RoomPosition(20, 21, 'W0N0'), [ C.MOVE ], 'parker', '100'));
 		},
 	})(async ({ shard, tick }) => {
-		using rng = setDepositPlaceRandomForTesting(makeRng());
+		using rng = deterministicRandomForTesting();
 		// No bootstrap: the decay path is the sole scheduler of W5N5. Decay fires this tick and marks
 		// W5N5 due immediately (score 0); the shard processor drains it the same tick, tallies the
 		// sector without the corpse, and pushes a refill intent.

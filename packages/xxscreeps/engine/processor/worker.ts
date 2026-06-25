@@ -49,8 +49,8 @@ let roomCache = new Map<string, Room>();
 let world: World;
 
 // Connect to storage
-using db = await Database.connect();
-using shard = await Shard.connect(db, config.shards[0]!.name);
+await using db = await Database.connect();
+await using shard = await Shard.connect(db, config.shards[0]!.name);
 await Promise.all([ ...workerInitialized(shard) ]);
 
 // Create responder host and listen for requests

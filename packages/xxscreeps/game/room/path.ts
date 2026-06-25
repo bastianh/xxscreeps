@@ -1,9 +1,9 @@
 import type { Direction, RoomPosition } from 'xxscreeps/game/position.js';
 import type { Terrain } from 'xxscreeps/game/terrain.js';
 import * as C from 'xxscreeps/game/constants/index.js';
+import { getOffsetsFromDirection } from 'xxscreeps/game/direction.js';
 import { Game } from 'xxscreeps/game/index.js';
 import * as PathFinder from 'xxscreeps/game/pathfinder/index.js';
-import { getOffsetsFromDirection } from 'xxscreeps/game/position.js';
 import { extend } from 'xxscreeps/utility/utility.js';
 import { Room } from './room.js';
 
@@ -155,8 +155,8 @@ extend(Room, {
 			path.push({
 				x: pos.x,
 				y: pos.y,
-				dx: pos.x - previous.x as never,
-				dy: pos.y - previous.y as never,
+				dx: pos.x - previous.x as -1 | 0 | 1,
+				dy: pos.y - previous.y as -1 | 0 | 1,
 				direction: previous.getDirectionTo(pos),
 			});
 			previous = pos;

@@ -212,7 +212,9 @@ registerObjectTickProcessor(StructureSpawn, (spawn, context) => {
 				let hostileCreep: Creep | undefined;
 				for (const dir of directions) {
 					const pos = getPositionInDirection(creep.pos, dir);
-					if (check(pos)) {
+					if (!pos) {
+						continue;
+					} else if (check(pos)) {
 						spawnPos = pos;
 						break;
 					}
@@ -227,8 +229,13 @@ registerObjectTickProcessor(StructureSpawn, (spawn, context) => {
 
 				// All preferred directions blocked — only stomp if non-preferred are also blocked
 				if (!spawnPos && hostileCreep) {
-					const otherDirections = Fn.reject(ALL_DIRECTIONS, d => directions.has(d));
-					if (!Fn.some(otherDirections, dir => check(getPositionInDirection(creep.pos, dir)))) {
+					const hasOtherDirection = Fn.pipe(
+						ALL_DIRECTIONS,
+						$$ => Fn.reject($$, dir => directions.has(dir)),
+						$$ => Fn.map($$, dir => getPositionInDirection(creep.pos, dir)),
+						$$ => Fn.filter($$),
+						$$ => Fn.some($$, pos => check(pos)));
+					if (!hasOtherDirection) {
 						spawnPos = hostileCreep.pos;
 						buryCreep(hostileCreep);
 					}
