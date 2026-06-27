@@ -26,36 +26,16 @@ spec:
       imagePullSecrets:
         - name: registry-credentials
       initContainers:
-        - name: runtime-bootstrap
+        - name: seed-archives
           image: xxscreeps
-          args: ["eval", "-e", "0"]
-          workingDir: /data
+          command: ["sh", "-c", "mkdir -p /data/screeps/archive && cp -n /opt/archive-seed/*.js /data/screeps/archive/ 2>/dev/null; true"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-          env:
-            - name: SCREEPS_MOD_CLIENT_MOUNT_PATH
-              value: "/"
-            - name: XXSCREEPS_BACKEND_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: xxscreeps-secrets
-                  key: backend-secret
-            - name: XXSCREEPS_STEAM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: xxscreeps-secrets
-                  key: steam-api-key
           volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: config
-              mountPath: /data/.screepsrc.yaml
-              subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
+            - name: schema-archive
+              mountPath: /data/screeps
       containers:
         - name: main
           image: xxscreeps
@@ -82,14 +62,11 @@ spec:
                   name: xxscreeps-secrets
                   key: steam-api-key
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - name: schema-archive
+              mountPath: /data/screeps
             - name: config
               mountPath: /data/.screepsrc.yaml
               subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
         - name: processor
           image: xxscreeps
           args: ["processor"]
@@ -115,14 +92,11 @@ spec:
                   name: xxscreeps-secrets
                   key: steam-api-key
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - name: schema-archive
+              mountPath: /data/screeps
             - name: config
               mountPath: /data/.screepsrc.yaml
               subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
         - name: runner
           image: xxscreeps
           args: ["runner"]
@@ -148,14 +122,11 @@ spec:
                   name: xxscreeps-secrets
                   key: steam-api-key
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - name: schema-archive
+              mountPath: /data/screeps
             - name: config
               mountPath: /data/.screepsrc.yaml
               subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
         - name: backend
           image: xxscreeps
           args: ["backend"]
@@ -183,14 +154,11 @@ spec:
           ports:
             - containerPort: 21025
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - name: schema-archive
+              mountPath: /data/screeps
             - name: config
               mountPath: /data/.screepsrc.yaml
               subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
           livenessProbe:
             tcpSocket:
               port: 21025
@@ -211,9 +179,9 @@ spec:
               sleep:
                 seconds: 5
       volumes:
-        - name: data
+        - name: schema-archive
           persistentVolumeClaim:
-            claimName: xxscreeps-data
+            claimName: xxscreeps-schema-archive
         - name: config
           configMap:
             name: xxscreeps-config

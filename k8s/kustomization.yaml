@@ -6,7 +6,7 @@ namespace: xxscreeps
 resources:
   - namespace.yaml
   - configmap.yaml
-  - pvc.yaml
+  - schema-archive-pvc.yaml
   - redis-pvc.yaml
   - redis-service.yaml
   - redis-deployment.yaml
@@ -20,4 +20,4 @@ resources:
 images:
   - name: xxscreeps
     newName: registry.zeta.w4rl0ck.dev/xxscreeps
-    newTag: "30"
+    newTag: "35"

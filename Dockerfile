@@ -21,12 +21,39 @@ RUN <<DONE
 DONE
 
 FROM node:24-trixie
-COPY --from=build /runtime-packages /opt/xxscreeps
+COPY --from=build /runtime-packages /opt/xxscreeps-packages
+COPY extra-dependencies.json /opt/xxscreeps-packages/
+COPY schema-archives/ /opt/archive-seed/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+RUN corepack enable
+
+WORKDIR /opt/runtime
+RUN node --input-type=module <<'NODE'
+import fs from 'node:fs';
+const extra = JSON.parse(fs.readFileSync('/opt/xxscreeps-packages/extra-dependencies.json', 'utf8'));
+const pkg = {
+	name: 'xxscreeps-runtime',
+	private: true,
+	packageManager: 'pnpm@10.33.3',
+	dependencies: {
+		...(extra.dependencies ?? {}),
+		'@xxscreeps/client': 'file:/opt/xxscreeps-packages/client.tgz',
+		'@xxscreeps/lodash3': 'file:/opt/xxscreeps-packages/lodash3.tgz',
+		'@xxscreeps/redis': 'file:/opt/xxscreeps-packages/redis.tgz',
+		'xxscreeps': 'file:/opt/xxscreeps-packages/xxscreeps.tgz',
+	},
+	pnpm: {
+		onlyBuiltDependencies: ['@xxscreeps/pathfinder', 'isolated-vm', 'ivm-inspect'],
+	},
+};
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+NODE
+RUN pnpm install --prod --no-frozen-lockfile
+
 WORKDIR /data
 EXPOSE 21025
 ENV NODE_OPTIONS="--no-node-snapshot --experimental-vm-modules --enable-source-maps --no-warnings"
 ENV XXSCREEPS_DATA_DIR="/data"
-ENV XXSCREEPS_PACKAGE_DIR="/opt/xxscreeps"
 ENTRYPOINT [ "/usr/local/bin/docker-entrypoint.sh" ]

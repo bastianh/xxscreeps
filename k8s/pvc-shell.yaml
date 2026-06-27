@@ -12,7 +12,7 @@ spec:
     - name: registry-credentials
   containers:
     - name: shell
-      image: registry.zeta.w4rl0ck.dev/xxscreeps:30
+      image: registry.zeta.w4rl0ck.dev/xxscreeps:34
       command: ["/bin/sh", "-c", "sleep 36000"]
       workingDir: /data
       securityContext:
@@ -31,18 +31,15 @@ spec:
               name: xxscreeps-secrets
               key: steam-api-key
       volumeMounts:
-        - name: data
-          mountPath: /data
+        - name: schema-archive
+          mountPath: /data/screeps
         - name: config
           mountPath: /data/.screepsrc.yaml
           subPath: .screepsrc.yaml
-        - name: config
-          mountPath: /data/extra-dependencies.json
-          subPath: extra-dependencies.json
   volumes:
-    - name: data
+    - name: schema-archive
       persistentVolumeClaim:
-        claimName: xxscreeps-data
+        claimName: xxscreeps-schema-archive
     - name: config
       configMap:
         name: xxscreeps-config

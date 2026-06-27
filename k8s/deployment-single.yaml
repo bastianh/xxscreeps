@@ -25,6 +25,17 @@ spec:
           type: RuntimeDefault
       imagePullSecrets:
         - name: registry-credentials
+      initContainers:
+        - name: seed-archives
+          image: xxscreeps
+          command: ["sh", "-c", "mkdir -p /data/screeps/archive && cp -n /opt/archive-seed/*.js /data/screeps/archive/ 2>/dev/null; true"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: schema-archive
+              mountPath: /data/screeps
       containers:
         - name: xxscreeps
           image: xxscreeps
@@ -50,17 +61,19 @@ spec:
                 secretKeyRef:
                   name: xxscreeps-secrets
                   key: steam-api-key
+            - name: HISTORY_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: xxscreeps-secrets
+                  key: history-postgres-url
           ports:
             - containerPort: 21025
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - name: schema-archive
+              mountPath: /data/screeps
             - name: config
               mountPath: /data/.screepsrc.yaml
               subPath: .screepsrc.yaml
-            - name: config
-              mountPath: /data/extra-dependencies.json
-              subPath: extra-dependencies.json
           livenessProbe:
             tcpSocket:
               port: 21025
@@ -81,9 +94,9 @@ spec:
               sleep:
                 seconds: 5
       volumes:
-        - name: data
+        - name: schema-archive
           persistentVolumeClaim:
-            claimName: xxscreeps-data
+            claimName: xxscreeps-schema-archive
         - name: config
           configMap:
             name: xxscreeps-config
