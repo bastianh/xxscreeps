@@ -1,0 +1,20 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"properties": {
+		"adminApi": {
+			"description": "Administrative API server settings. v1 relies on bind address and firewall policy for access control.",
+			"properties": {
+				"bind": {
+					"description": "Network interface to bind the admin API server to, or false to disable it. Format is: \"host\" or \"host:port\". Host can be * to bind to all interfaces. Port is 21026 if not specified.\n\nRecommended value for local operations: 127.0.0.1:21026",
+					"anyOf": [
+						{ "type": "string" },
+						{ "const": false, "type": "boolean" }
+					],
+					"default": false
+				}
+			},
+			"type": "object"
+		}
+	},
+	"type": "object"
+}
