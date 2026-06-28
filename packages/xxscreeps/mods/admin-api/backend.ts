@@ -11,7 +11,9 @@ import { config } from 'xxscreeps/config/index.js';
 import { routes } from './routes.js';
 import './game.js';
 import './shutdown.js';
+import './store.js';
 import './terrain.js';
+import './users.js';
 
 interface AdminContext {
 	db: Database;
