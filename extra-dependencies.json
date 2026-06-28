@@ -1,8 +1,8 @@
 {
-  "dependencies": {
-    "xxscreeps-mod-client": "^0.2.14",
-    "screeps-client": "^0.11.0",
-    "xxscreeps-mod-history": "^0.1.2",
-    "@xxscreeps-mod-history/postgres": "^0.1.1"
-  }
+	"dependencies": {
+		"xxscreeps-mod-client": "^0.2.17",
+		"screeps-client": "^0.12.2",
+		"xxscreeps-mod-history": "^0.1.2",
+		"@xxscreeps-mod-history/postgres": "^0.1.1"
+	}
 }
