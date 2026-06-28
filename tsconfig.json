@@ -2,6 +2,7 @@
 	"extends": "./tsconfig.base.json",
 	"include": [],
 	"references": [
+		{ "path": "./packages/admin-api" },
 		{ "path": "./packages/client" },
 		{ "path": "./packages/pathfinder" },
 		{ "path": "./packages/redis" },

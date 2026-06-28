@@ -22,6 +22,9 @@ importers:
       xxscreeps:
         specifier: workspace:*
         version: link:packages/xxscreeps
+      xxscreeps-mod-admin-api:
+        specifier: workspace:*
+        version: link:packages/admin-api
     devDependencies:
       '@changesets/cli':
         specifier: ^2.31.0
@@ -50,6 +53,12 @@ importers:
       typescript-json-schema:
         specifier: 0.67.1
         version: 0.67.1
+
+  packages/admin-api:
+    dependencies:
+      xxscreeps:
+        specifier: workspace:~
+        version: link:../xxscreeps
 
   packages/client:
     dependencies:

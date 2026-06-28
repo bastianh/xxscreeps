@@ -71,4 +71,5 @@ await halt.promise;
 
 // Start graceful exit
 await unlistenServer();
+await Promise.all(hooks.map('backendShutdown', hook => hook()));
 await socketHandler.flush();

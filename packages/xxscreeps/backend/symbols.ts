@@ -12,6 +12,7 @@ export const TerrainRender = Symbol('terrainRender');
 
 export const hooks = makeHookRegistration<{
 	backendReady: (db: Database, shard: Shard) => void;
+	backendShutdown: () => Promise<void> | void;
 	middleware: (koa: Koa<State, Context>, router: Router<State, Context>) => void;
 	roomSocket: (shard: Shard, userId: string | undefined, roomName: string) =>
 		AsyncEffectAndResult<((time: number) => MaybePromise<object>) | undefined>;
