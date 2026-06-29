@@ -56,9 +56,28 @@ importers:
 
   packages/admin-api:
     dependencies:
+      koa:
+        specifier: 2.14.2
+        version: 2.14.2
+      koa-bodyparser:
+        specifier: 4.4.1
+        version: 4.4.1
+      koa-router:
+        specifier: 10.1.1
+        version: 10.1.1
       xxscreeps:
         specifier: workspace:~
         version: link:../xxscreeps
+    devDependencies:
+      '@types/koa':
+        specifier: ~2.13.6
+        version: 2.13.12
+      '@types/koa-bodyparser':
+        specifier: ~4.3.10
+        version: 4.3.13
+      '@types/koa-router':
+        specifier: ~7.4.4
+        version: 7.4.9
 
   packages/client:
     dependencies:
