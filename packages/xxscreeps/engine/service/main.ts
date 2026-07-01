@@ -1,3 +1,4 @@
+import type { ServiceMessage } from './index.js';
 import { config } from 'xxscreeps/config/index.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { Mutex } from 'xxscreeps/engine/db/mutex.js';
@@ -44,6 +45,7 @@ const invokeServiceInitialized = hooks.makeMapped('serviceInitialized');
 const invokeAfterTick = hooks.makeMapped('afterTick');
 
 // Bookkeeping
+let paused = false as boolean;
 const performanceTimer = new AveragingTimer(100);
 const saveInterval = config.database.saveInterval * 60000;
 
@@ -55,6 +57,24 @@ const [ rooms ] = await Promise.all([
 ]);
 await shard.scratch.sAdd('initializeRooms', rooms);
 
+// Handle common service messages
+async function handleServiceMessage(message: ServiceMessage) {
+	// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+	switch (message.type) {
+		case 'pause':
+			paused = true;
+			break;
+
+		case 'unpause':
+			paused = false;
+			break;
+
+		case 'processorConnected':
+			await serviceChannel.publish({ type: 'mainConnected' });
+			break;
+	}
+}
+
 // Wait for processors to connect and initialize world state
 await using serviceMessages = Fn.unbreak(serviceChannel.iterable());
 await serviceChannel.publish({ type: 'mainConnected' });
@@ -65,13 +85,17 @@ const didInitialize = await async function() {
 			case 'processorConnected':
 				await serviceChannel.publish({ type: 'mainConnected' });
 				break;
+
 			case 'processorInitialized':
 				if (await shard.scratch.zCard(activeRoomsKey) === rooms.length) {
 					await begetRoomProcessQueue(shard, shard.time);
 					return true;
 				}
 				break;
+
 			case 'shutdown': return false;
+
+			default: await handleServiceMessage(message);
 		}
 	}
 }();
@@ -102,10 +126,6 @@ async function tick() {
 	for await (const message of serviceMessages) {
 		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
 		switch (message.type) {
-			case 'processorConnected':
-				await serviceChannel.publish({ type: 'mainConnected' });
-				break;
-
 			case 'processorInitialized':
 				await processorChannel.publish({ type: 'process', time });
 				break;
@@ -132,6 +152,8 @@ async function tick() {
 			case 'shutdown':
 				willContinue = false;
 				break;
+
+			default: await handleServiceMessage(message);
 		}
 	}
 }
@@ -158,7 +180,7 @@ if (didInitialize) {
 	}));
 
 	let lastSave = Date.now();
-	while (true) {
+	mainLoop: while (true) {
 		// Tick
 		const tickWallTime = Date.now();
 		if (!await tick()) {
@@ -177,14 +199,36 @@ if (didInitialize) {
 			mustNotReject(Promise.all([ db.save(), shard.save() ]));
 		}
 
-		// Add delay
-		const delay = Math.max(0, tickSpeed - (Date.now() - tickWallTime));
-		if (delay > 0) {
-			using timer = acquireTimeout(delay, () => resolve(true));
-			const { promise, resolve } = Promise.withResolvers<boolean>();
-			tickDelay = resolve;
-			if (!await promise) {
-				break;
+		if (paused) {
+			// Wait for resume
+			console.log('Game is paused');
+			whilePaused: for await (const message of serviceMessages) {
+				// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+				switch (message.type) {
+					case 'pausedTick':
+						break whilePaused;
+
+					case 'shutdown':
+						break mainLoop;
+
+					default: await handleServiceMessage(message);
+				}
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+				if (!paused) {
+					break;
+				}
+			}
+
+		} else {
+			// Add delay
+			const delay = Math.max(0, tickSpeed - (Date.now() - tickWallTime));
+			if (delay > 0) {
+				using timer = acquireTimeout(delay, () => resolve(true));
+				const { promise, resolve } = Promise.withResolvers<boolean>();
+				tickDelay = resolve;
+				if (!await promise) {
+					break;
+				}
 			}
 		}
 	}
