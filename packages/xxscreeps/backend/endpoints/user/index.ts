@@ -5,7 +5,6 @@ import messages from './messages.js';
 import './auth.js';
 import './code.js';
 import './profile.js';
-import './stats.js';
 import './world.js';
 
 const endpoints = [ ...badge, ...messages ];

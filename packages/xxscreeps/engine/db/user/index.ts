@@ -1,6 +1,14 @@
 import type { Database } from 'xxscreeps/engine/db/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
+import { makeHookRegistration } from 'xxscreeps/utility/hook.js';
 import { branchManifestKey, buffersKey, stringsKey } from './code.js';
+
+// Mods hook `remove` to tear down account-level state they own (messages, stats, …) when a user is
+// deleted.
+export const hooks = makeHookRegistration<{
+	remove: (db: Database, userId: string) => Promise<void>;
+}>();
+const runRemoveHooks = hooks.makeMapped('remove');
 
 const providerMembersKey = (provider: string) => `usersByProvider/${provider}`;
 const userProvidersKey = (userId: string) => `user/${userId}/provider`;
@@ -74,6 +82,7 @@ export async function remove(db: Database, userId: string) {
 			db.data.vdel(buffersKey(userId, branchName)),
 			db.data.vdel(stringsKey(userId, branchName)),
 		]),
+		...runRemoveHooks(db, userId),
 	]);
 }
 
