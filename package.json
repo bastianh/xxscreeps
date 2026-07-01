@@ -14,8 +14,7 @@
   "dependencies": {
     "@xxscreeps/client": "workspace:*",
     "@xxscreeps/redis": "workspace:*",
-    "xxscreeps": "workspace:*",
-    "xxscreeps-mod-admin-api": "workspace:*"
+    "xxscreeps": "workspace:*"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

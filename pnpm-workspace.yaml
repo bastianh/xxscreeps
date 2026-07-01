@@ -1,5 +1,4 @@
 packages:
-  - packages/admin-api
   - packages/client
   - packages/lodash3
   - packages/pathfinder
