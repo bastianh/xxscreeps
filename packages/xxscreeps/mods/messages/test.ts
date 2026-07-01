@@ -1,8 +1,9 @@
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
+import { makeProviderRegistration } from 'xxscreeps/utility/hook.js';
 import {
-	getConversation, getConversationIndex, getUnreadCount, markRead, sendMessage,
+	getConversation, getConversationIndex, getUnreadCount, markRead, messageStore, sendMessage,
 } from './model.js';
 
 const alice = '100';
@@ -75,6 +76,9 @@ describe('messages model', () => {
 		const { db } = testShard;
 
 		await sendMessage(db, alice, bob, 'first');
+		// Thread order is scored by wall-clock ms with no tiebreaker, so give these two sends
+		// distinguishable timestamps (real messages are human-paced and never collide like this).
+		await new Promise(resolve => setTimeout(resolve, 2));
 		await sendMessage(db, bob, alice, 'reply');
 
 		const { entries, respondents } = await getConversationIndex(db, alice);
@@ -98,5 +102,25 @@ describe('messages model', () => {
 		assert.strictEqual(await getUnreadCount(db, bob), 0);
 		assert.deepStrictEqual(await getConversation(db, bob, alice), []);
 		assert.deepStrictEqual((await getConversationIndex(db, bob)).respondents, []);
+	});
+});
+
+describe('message store override', () => {
+	// The real `messageStore` is process-global and has no unregister, so we exercise the override
+	// semantics on a throwaway registration to avoid leaking a mock into other tests.
+	test('built-in store is the default', () => {
+		assert.strictEqual(typeof messageStore.current.sendMessage, 'function');
+	});
+
+	test('register replaces the default; registering twice throws', () => {
+		const fallback = { value: 'default' };
+		const registration = makeProviderRegistration('test', fallback);
+		assert.strictEqual(registration.current, fallback);
+
+		const override = { value: 'override' };
+		registration.register(override);
+		assert.strictEqual(registration.current, override);
+
+		assert.throws(() => registration.register({ value: 'second' }), /already registered/);
 	});
 });
