@@ -17,6 +17,7 @@ import { makeRoomName, parseRoomName } from 'xxscreeps/game/room/name.js';
 import { isBorder } from 'xxscreeps/game/terrain.js';
 import { drop as dropResource } from 'xxscreeps/mods/resource/processor/resource.js';
 import * as ResourceIntent from 'xxscreeps/mods/resource/processor/resource.js';
+import { addStat } from 'xxscreeps/mods/stats/model.js';
 import { lookForStructureAt } from 'xxscreeps/mods/structure/structure.js';
 import { typedArrayToString } from 'xxscreeps/utility/string.js';
 import { clamp, filterInPlace } from 'xxscreeps/utility/utility.js';
@@ -334,6 +335,7 @@ registerObjectTickProcessor(Creep, (creep, context) => {
 		context.didUpdate();
 	}
 	if (creep.ticksToLive === 0 || creep.hits <= 0) {
+		addStat(context, creep['#user'], creep.room.name, 'creepsLost', creep.body.length);
 		buryCreep(creep);
 		context.setActive();
 		return;
