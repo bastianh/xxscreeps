@@ -1,8 +1,15 @@
 services:
+  redis:
+    image: redis:8.8
+    volumes:
+      - ./data/redis:/data
+
   xxscreeps:
     build:
       context: .
     image: xxscreeps
+    depends_on:
+      - redis
     ports:
       - "21025:21025"
     volumes:
@@ -11,3 +18,6 @@ services:
     tty: true
     stdin_open: true
     command: start
+
+volumes:
+  redis-data:
