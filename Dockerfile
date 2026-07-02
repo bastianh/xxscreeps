@@ -23,7 +23,6 @@ DONE
 FROM node:24-trixie
 COPY --from=build /runtime-packages /opt/xxscreeps-packages
 COPY extra-dependencies.json /opt/xxscreeps-packages/
-COPY schema-archives/ /opt/archive-seed/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
