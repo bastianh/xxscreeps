@@ -1,0 +1,34 @@
+# Local dev overlay — auto-merged by `docker compose` on top of docker-compose.yml.
+# Purpose: test in-development mods (their own sibling repos) inside the container
+# WITHOUT rebuilding the image. Bind-mount each mod's *built* output over the copy
+# that lives in /opt/runtime/node_modules, then restart the container to reload.
+#
+# Workflow:
+#   1. In the mod's repo, keep a build watch running:   pnpm watch   (tsc --build --watch)
+#   2. Enable the mod in data/.screepsrc.yaml under `mods:` (by its package name).
+#   3. Apply / reload:   docker compose up -d   (then `docker compose restart xxscreeps`
+#      after each rebuild, since mods are loaded once at boot).
+#
+# Notes / constraints:
+#   - Mounts are read-only (:ro); the container never writes back to your source.
+#   - Resolution: a mod's `import 'xxscreeps/...'` resolves UP to the shared
+#     /opt/runtime/node_modules/xxscreeps — so there's a single engine instance.
+#   - Third-party runtime deps of a mod (e.g. `pg`) must exist in the image. The
+#     easiest path: keep the published version listed in extra-dependencies.json
+#     (one rebuild) so its deps are installed; the mount just overlays your local code.
+#   - The target path must already exist in node_modules for the overlay to take
+#     effect cleanly. For brand-new mods not yet in extra-dependencies.json, add the
+#     package name there and rebuild once; afterwards iterate purely via this mount.
+
+services:
+  xxscreeps:
+    volumes:
+      # --- xxscreeps-mod-history (sibling repo: ../screepsmod-history) ---
+      - ../screepsmod-history/packages/core:/opt/runtime/node_modules/xxscreeps-mod-history:ro
+      # Postgres backend for the history mod (needs `pg`, already in the image):
+      - ../screepsmod-history/packages/postgres:/opt/runtime/node_modules/@xxscreeps-mod-history/postgres:ro
+
+      # --- Template for additional in-development mods ---
+      # Copy a line per mod. Left = local built package dir (must contain package.json
+      # + dist/), right = its package name under /opt/runtime/node_modules.
+      # - ../xxscreeps-mod-foo:/opt/runtime/node_modules/xxscreeps-mod-foo:ro
