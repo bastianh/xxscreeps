@@ -1,6 +1,7 @@
 import type { KeyValProvider, PubSubProvider } from 'xxscreeps/engine/db/storage/index.js';
 import { config } from 'xxscreeps/config/index.js';
 import { connectToProvider } from 'xxscreeps/engine/db/storage/index.js';
+import { initializeSchemaArchive } from 'xxscreeps/engine/schema/build/index.js';
 import { acquireWith } from 'xxscreeps/utility/async.js';
 
 export class Database {
@@ -26,6 +27,7 @@ export class Database {
 			connectToProvider(info.data, 'keyval'),
 			connectToProvider(info.pubsub, 'pubsub'),
 		);
+		await initializeSchemaArchive(data);
 		return new Database(disposable.move(), data, pubsub);
 	}
 
