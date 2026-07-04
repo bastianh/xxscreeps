@@ -22,7 +22,14 @@ initializeGameEnvironment();
 // Initialize services
 await using backendContext = await BackendContext.connect();
 hooks.makeIterated('backendReady')(backendContext.db, backendContext.shard);
-const koa = new Koa<State, Context>();
+const koa = new Koa<State, Context>({
+	// Trust `X-Forwarded-*` headers only when explicitly configured behind a trusted reverse proxy.
+	// This lets `ctx.secure`/`ctx.protocol` honor `X-Forwarded-Proto` (e.g. for OAuth redirect URIs)
+	// when TLS is terminated upstream.
+	proxy: config.backend.proxy,
+	...config.backend.proxyIpHeader !== undefined && { proxyIpHeader: config.backend.proxyIpHeader },
+	...config.backend.maxIpsCount !== undefined && { maxIpsCount: config.backend.maxIpsCount },
+});
 const router = new Router<State, Context>();
 
 // Set up endpoints
