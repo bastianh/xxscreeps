@@ -6,12 +6,17 @@
             "properties": {
                 "allowEmailRegistration": {
                     "default": false,
-                    "description": "Whether to allow users sign up without steam with only their email address.\nNote: there is currently no confirmation mail send to the user to verify the address.",
+                    "description": "Whether to allow users sign up without steam with only their email address.\nNote: xxscreeps itself does not send a confirmation mail; install an email-verification mod (which registers a `verifyEmail` handler) and set `autoVerifyEmail: false` to require one.",
                     "type": "boolean"
                 },
                 "allowGuestAccess": {
                     "default": true,
                     "description": "Whether to allow read-only access to the API without logging in.",
+                    "type": "boolean"
+                },
+                "autoVerifyEmail": {
+                    "default": true,
+                    "description": "Whether email addresses are trusted immediately on registration/change, rather than held pending out-of-band confirmation. When false, an address is only held pending — and a verification mail sent — if a verification mod is installed (a `verifyEmail` hook handler is registered); with no such mod, addresses are auto-verified regardless. Leave true unless you run a verification mod.",
                     "type": "boolean"
                 },
                 "bind": {
