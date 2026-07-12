@@ -288,7 +288,13 @@ export class BlobStorage extends AsyncDisposableResource {
 				await fs.writeFile(tmp, value);
 				await fs.rename(tmp, path);
 			} else {
-				await fs.unlink(path);
+				// The blob may have been created and deleted between two saves, in
+				// which case it never made it to disk
+				await fs.unlink(path).catch((err: { code?: string }) => {
+					if (err.code !== 'ENOENT') {
+						throw err;
+					}
+				});
 			}
 		});
 
