@@ -62,7 +62,7 @@ export class LocalKeyValResponder extends AsyncDisposableResource implements May
 		this.blob = blob;
 		if (payload !== undefined) {
 			const map = JSON.parse(payload, (key, value: SerializedValue) => {
-				if (typeof value !== 'object' || value instanceof Array) {
+				if (typeof value !== 'object' || value === null || value instanceof Array) {
 					return value;
 				} else {
 					switch (value['#']) {
@@ -70,6 +70,10 @@ export class LocalKeyValResponder extends AsyncDisposableResource implements May
 						case 'set': return new Set(value.$);
 						case 'zset': return new SortedSet(value.$);
 						case 'uint8': return latin1ToBuffer(value.$);
+						// Plain objects must pass through untouched; returning `undefined`
+						// from a reviver deletes the property, which would strip the `$`
+						// payload out of its parent before the parent is revived
+						default: return value;
 					}
 				}
 			}) as SerializedValue;
