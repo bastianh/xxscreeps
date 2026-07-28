@@ -30,6 +30,17 @@ export interface MapStatsPayload {
 	userIds: Set<string>;
 }
 
+/** One entry of `serverData.features`, the flags a client uses to decide which sections to show. */
+export interface ServerFeature {
+	name: string;
+	version: number;
+}
+
+/** The `serverData` bag of `/api/version`, which `version` hooks amend. */
+export interface ServerData extends Record<string, unknown> {
+	features: ServerFeature[];
+}
+
 export const hooks = makeHookRegistration<{
 	backendReady: (db: Database, shard: Shard) => void;
 	mapStats: (context: Context, payload: MapStatsPayload) => MaybePromise<void>;
@@ -37,7 +48,7 @@ export const hooks = makeHookRegistration<{
 	roomSocket: (shard: Shard, userId: string | undefined, roomName: string) =>
 		AsyncEffectAndResult<((time: number) => MaybePromise<object>) | undefined>;
 	sendUserInfo: (db: Database, userId: string, userInfo: Record<string, unknown>, privateSelf: boolean) => Promise<void>;
-	version: (serverData: Record<string, unknown>) => void;
+	version: (serverData: ServerData) => void;
 	route: Endpoint;
 	subscription: SubscriptionEndpoint;
 }>();

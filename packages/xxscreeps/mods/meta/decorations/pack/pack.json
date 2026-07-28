@@ -1,0 +1,84 @@
+{
+	"name": "xxscreeps",
+	"themes": [
+		{ "_id": "xx-basic", "name": "Basics", "color": "#8f8f8f" },
+		{ "_id": "xx-neon", "name": "Neon", "color": "#ff4fd8" }
+	],
+	"decorations": [
+		{
+			"_id": "xx-floor-plain",
+			"type": "floorLandscape",
+			"name": "Plain Floor",
+			"theme": "xx-basic",
+			"rarity": 1,
+			"groupDescription": "Recolours the floor, the swamps and the roads of a room.",
+			"props": {
+				"floorBackgroundColor": { "type": "color", "label": "Floor", "default": "#2b2b2b" },
+				"floorBackgroundBrightness": { "type": "range", "label": "Floor brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"swampColor": { "type": "color", "label": "Swamp", "default": "#23301f" },
+				"swampStrokeColor": { "type": "color", "label": "Swamp border", "default": "#3a4a33" },
+				"swampStrokeWidth": { "type": "range", "label": "Swamp border width", "min": 0, "max": 60, "step": 1, "default": 30 },
+				"roadsColor": { "type": "color", "label": "Roads", "default": "#2f2f2f" },
+				"roadsBrightness": { "type": "range", "label": "Road brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		},
+		{
+			"_id": "xx-wall-plain",
+			"type": "wallLandscape",
+			"name": "Plain Walls",
+			"theme": "xx-basic",
+			"rarity": 1,
+			"groupDescription": "Recolours the walls of a room.",
+			"props": {
+				"backgroundColor": { "type": "color", "label": "Wall", "default": "#111111" },
+				"backgroundBrightness": { "type": "range", "label": "Wall brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"strokeColor": { "type": "color", "label": "Wall border", "default": "#2b2b2b" },
+				"strokeBrightness": { "type": "range", "label": "Border brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"strokeWidth": { "type": "range", "label": "Border width", "min": 0, "max": 60, "step": 1, "default": 10 },
+				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		},
+		{
+			"_id": "xx-floor-neon",
+			"type": "floorLandscape",
+			"name": "Neon Floor",
+			"theme": "xx-neon",
+			"rarity": 2,
+			"groupDescription": "A floor that leans into the colour picker.",
+			"props": {
+				"floorBackgroundColor": { "type": "color", "label": "Floor", "default": "#1b0f2b" },
+				"floorBackgroundBrightness": { "type": "range", "label": "Floor brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"swampColor": { "type": "color", "label": "Swamp", "default": "#2b0f3f" },
+				"swampStrokeColor": { "type": "color", "label": "Swamp border", "default": "#ff4fd8" },
+				"swampStrokeWidth": { "type": "range", "label": "Swamp border width", "min": 0, "max": 60, "step": 1, "default": 30 },
+				"roadsColor": { "type": "color", "label": "Roads", "default": "#ff4fd8" },
+				"roadsBrightness": { "type": "range", "label": "Road brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 0.6 },
+				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		},
+		{
+			"_id": "xx-room-neon",
+			"type": "landscape",
+			"name": "Neon Room",
+			"theme": "xx-neon",
+			"rarity": 3,
+			"groupDescription": "Floor and walls in one — takes the whole room.",
+			"props": {
+				"floorBackgroundColor": { "type": "color", "label": "Floor", "default": "#140a1f" },
+				"floorBackgroundBrightness": { "type": "range", "label": "Floor brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"swampColor": { "type": "color", "label": "Swamp", "default": "#22103a" },
+				"swampStrokeColor": { "type": "color", "label": "Swamp border", "default": "#8f4fff" },
+				"swampStrokeWidth": { "type": "range", "label": "Swamp border width", "min": 0, "max": 60, "step": 1, "default": 30 },
+				"roadsColor": { "type": "color", "label": "Roads", "default": "#8f4fff" },
+				"roadsBrightness": { "type": "range", "label": "Road brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 0.7 },
+				"backgroundColor": { "type": "color", "label": "Wall", "default": "#090412" },
+				"backgroundBrightness": { "type": "range", "label": "Wall brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"strokeColor": { "type": "color", "label": "Wall border", "default": "#ff4fd8" },
+				"strokeBrightness": { "type": "range", "label": "Border brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"strokeWidth": { "type": "range", "label": "Border width", "min": 0, "max": 60, "step": 1, "default": 14 },
+				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		}
+	]
+}

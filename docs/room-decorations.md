@@ -149,31 +149,32 @@ die Registry ist nur der Lesepfad — und sie gehört ausschließlich `model.ts`
 
 ## 4. Phasen
 
-### Phase 1 — Katalog, Inventar, Feature-Flag
+### Phase 1 — Katalog, Inventar, Feature-Flag ✅ erledigt
 
 *Ziel: der Inventarbereich des Clients erscheint und zeigt Items an. Noch nichts ist platzierbar.*
 
-- Mod-Gerüst, Manifest, Eintrag in `mods/classic/index.ts`.
-- `catalog.ts`: Pack-Format, ajv-Schema, Laden + Validieren, Asset-URL-Auflösung.
-- Standard-Pack: eine Handvoll `floorLandscape`/`wallLandscape`-Definitionen (nur Farben, kein
-  Asset), zwei Themes. `props` so schreiben, wie der Dialog des Clients sie erwartet
-  (`type: 'color' | 'range' | 'boolean' | 'display' | 'string'`, `default`, `min`/`max`/`step`,
-  `readonly`) — inklusive `world` als Boolean-Prop.
-- `model.ts`: Besitz-Keys, `grant()`, `revoke()`, `listForUser()`.
-- Routen `inventory` und `themes`; Core-Stubs entfernen.
-- Asset-Route für Packs mit Dateien.
-- `version`-Hook: `{ name: 'inventory', version: 1 }` in `serverData.features`.
-- Admin-Werkzeug: `xxscreeps manage decoration <list|grant|revoke>` in `scripts/manage.ts`
-  (`usage()` erweitern), damit man Items überhaupt vergeben kann.
-- `User.remove`-Hook, der Besitz und Aktivierungen eines gelöschten Nutzers aufräumt — wie
-  `messages` es macht (`mods/meta/messages/model.ts`).
+- ✔ Mod `mods/meta/decorations` (`backend`, `test`), eingetragen in `mods/classic/index.ts`.
+- ✔ `catalog.ts`: Pack-Format samt ajv-Schema, Laden, Validieren, Asset-Auflösung. Unbekannter
+  Typ, fehlendes Asset, hängende Theme- oder Prop-Referenz, doppelte Id, Asset außerhalb des
+  Pack-Verzeichnisses oder mit nicht renderbarem Dateityp → Fehler beim Start.
+- ✔ Standard-Pack `pack/pack.json`: zwei Themes, vier reine Farb-Landscapes (Floor, Walls, Neon
+  Floor, Neon Room). Keine Binärdateien — Landscapes brauchen keine.
+- ✔ `model.ts`: Besitz in `db.data`, `grant()` / `revoke()` / `listForUser()`, `User.remove`-Hook.
+- ✔ Routen `inventory` und `themes`, Asset-Route `/assets/decorations/…` (serviert nur Dateien,
+  die im Katalog referenziert sind — der Request nennt einen Map-Key, nie einen Pfad).
+- ✔ Core-Stubs für `inventory`/`themes` entfernt; der Mod ist alleiniger Besitzer der Pfade.
+- ✔ `version`-Hook meldet `{ name: 'inventory', version: 1 }`. Nebenbei ist der Hook jetzt auf
+  `ServerData` typisiert statt auf `Record<string, unknown>`, damit `features` ohne Cast erreichbar ist.
+- ✔ `xxscreeps manage decoration <catalog|list|grant|revoke>`.
+- ✔ Config `decorations.{builtin,grantAll,packs,assetBaseUrl}`; `grantAll` standardmäßig an.
+- ✔ 15 Tests (`test.ts`), Pack-Doku in `mods/meta/decorations/README.md`.
 
-**Offene Frage an dieser Stelle:** wie kommen Nutzer regulär an Dekorationen? Optionen:
-Admin-Grant (immer nötig, kommt hier), `decorations.grantAll: true` in der Config (jeder
-besitzt den ganzen Katalog — für private Server der plausibelste Standard), oder Pixel-Ökonomie
-(Phase 6). Vorschlag: `grantAll` als Config-Flag in dieser Phase, dann ist das Feature ohne
-Ops-Aufwand benutzbar. Das Inventar wird dafür virtuell aus dem Katalog erzeugt; Aktivierungen
-liegen trotzdem einzeln im Store.
+**Entschieden:** `grantAll` (Standard) macht den ganzen Katalog für jeden verfügbar — ohne
+Ops-Aufwand nutzbar. Explizite Grants werden trotzdem gespeichert und greifen, sobald das Flag
+aus ist. Sie zusätzlich zum impliziten Besitz anzuzeigen wäre doppelt, deshalb gilt: `grantAll`
+an → Katalog, `grantAll` aus → nur Vergebenes.
+
+**Bewusst offen:** Pixel-Ökonomie als Erwerbsweg (Phase 6).
 
 ### Phase 2 — Aktivieren und Deaktivieren
 
