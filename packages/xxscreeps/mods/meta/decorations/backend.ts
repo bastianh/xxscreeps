@@ -80,7 +80,17 @@ hooks.register('route', {
 	},
 });
 
-// The client gates its inventory section on this flag.
+// The client gates its inventory section on this flag, and builds the section's route and sidebar
+// entry from the menu payload riding along with it.
 hooks.register('version', serverData => {
-	serverData.features.push({ name: 'inventory', version: 1 });
+	serverData.features.push({
+		name: 'inventory',
+		version: 1,
+		menuData: [ {
+			section: 0,
+			after: 'World',
+			item: { id: 'menu-item-inventory', label: 'Inventory', routerLink: '/inventory', svg: 'inventory' },
+			module: 'InventoryModule',
+		} ],
+	});
 });

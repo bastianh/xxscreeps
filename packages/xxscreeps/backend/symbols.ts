@@ -30,10 +30,30 @@ export interface MapStatsPayload {
 	userIds: Set<string>;
 }
 
+/**
+ * A menu entry a feature contributes to the client's sidebar. The official client ships an empty
+ * router configuration and a sidebar holding only the built-in links; everything else is injected
+ * from here at connect time, which is why the route's client module rides along with the entry.
+ */
+export interface ClientMenuEntry {
+	/** Index of the sidebar section receiving the entry. */
+	section: number;
+	/** Position inside the section. Ignored when `after` names an entry. */
+	start?: number;
+	/** Label of the entry to insert after. */
+	after?: string;
+	/** Entries to replace at the insertion point. */
+	deleteCount?: number;
+	item: Record<string, unknown>;
+	/** Lazily-loaded client module owning the entry's route, e.g. `InventoryModule`. */
+	module?: string;
+}
+
 /** One entry of `serverData.features`, the flags a client uses to decide which sections to show. */
 export interface ServerFeature {
 	name: string;
 	version: number;
+	menuData?: ClientMenuEntry[];
 }
 
 /** The `serverData` bag of `/api/version`, which `version` hooks amend. */
