@@ -178,7 +178,7 @@ async function userBranch(who: string, branch: string) {
 }
 
 // Decorations a user owns. `grantAll` (the default) hands out the whole catalog, in which case
-// `list` reports it and grants are pointless but harmless — they surface once it's turned off.
+// `list` reports that implicit ownership; grants are still written and surface once it's off.
 function decorationCatalog() {
 	const definitions = [ ...catalog.definitions.values() ].sort(mappedPrimitiveComparator(definition => definition._id));
 	if (definitions.length === 0) {
@@ -199,6 +199,9 @@ async function decorationList(who: string) {
 		out('(none)');
 		return;
 	}
+	if (Decorations.grantAll()) {
+		out('Everyone owns the whole catalog while \'decorations.grantAll\' is on; these items have no stored grant.');
+	}
 	const idWidth = Math.max(...Fn.map(items, item => item.id.length));
 	out(`${'item'.padEnd(idWidth)}  ${'decoration'.padEnd(20)}  name`);
 	for (const item of items) {
@@ -216,7 +219,11 @@ async function decorationGrant(who: string, definitionId: string) {
 async function decorationRevoke(who: string, itemId: string) {
 	const id = await resolveUserId(who);
 	if (!await Decorations.revoke(db, id, itemId)) {
-		throw new Error(`User ${who} does not own item ${itemId}`);
+		// `list` reports implicit ownership under `grantAll`, whose ids name a decoration rather
+		// than a stored grant. Revoking one is not a thing you can do; turning `grantAll` off is.
+		throw new Error(Decorations.grantAll()
+			? `User ${who} has no stored grant ${itemId}; ownership is implicit while 'decorations.grantAll' is on`
+			: `User ${who} does not own item ${itemId}`);
 	}
 	await save();
 	out(`Revoked ${itemId} from ${who} (${id}).`);

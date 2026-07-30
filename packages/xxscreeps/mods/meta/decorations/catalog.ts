@@ -103,16 +103,36 @@ export interface DecorationPack {
 	decorations: DecorationDefinition[];
 }
 
-/** Something the asset route serves: a file a pack ships, or content the catalog drew for it. */
-export type DecorationAsset =
-	{ kind: 'file'; file: URL } |
-	{ kind: 'generated'; body: string };
+/** A file a pack ships. */
+export interface PackFileAsset {
+	kind: 'file';
+	file: URL;
+}
+
+/** Content the catalog drew for a pack, e.g. a landscape preview. */
+export interface GeneratedAsset {
+	kind: 'generated';
+	body: string;
+}
+
+/** Something the asset route serves. */
+export type DecorationAsset = PackFileAsset | GeneratedAsset;
 
 export interface Catalog {
 	definitions: ReadonlyMap<string, DecorationDefinition>;
 	themes: readonly DecorationTheme[];
 	/** Assets the loaded packs reference, keyed by their public path under `/assets/decorations/`. */
 	assets: ReadonlyMap<string, DecorationAsset>;
+}
+
+/**
+ * A pack's `pack.json`, already read. Reading is kept out of {@link loadCatalog} so that validating
+ * a pack needs nothing on disk; only the assets a pack references are resolved against `directory`.
+ */
+export interface PackSource {
+	/** Directory relative asset references resolve against. */
+	directory: URL;
+	body: string;
 }
 
 const propSchema = {
@@ -235,20 +255,19 @@ export function assetContentType(file: string) {
  * by handing out absolute s3 urls, which is what `assetBaseUrl` is for when the assets live on
  * another origin.
  */
-const assetUrlPrefix = config.decorations.assetBaseUrl === undefined
+const assetUrlPrefix = config.decorations?.assetBaseUrl === undefined
 	? 'assets/decorations'
 	: `${config.decorations.assetBaseUrl}/assets/decorations`;
 
 /** Urls a pack may reference without shipping the file: other origins, and data urls. */
 const isExternalUrl = (value: string) => /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i.test(value);
 
-async function loadPack(url: URL) {
-	const raw: unknown = JSON.parse(await fs.readFile(url, 'utf8'));
+async function loadPack({ body, directory }: PackSource) {
+	const raw: unknown = JSON.parse(body);
 	if (!validatePack(raw)) {
-		throw new Error(`Invalid decoration pack '${url.pathname}': ${ajv.errorsText(validatePack.errors)}`);
+		throw new Error(`Invalid decoration pack '${directory.pathname}': ${ajv.errorsText(validatePack.errors)}`);
 	}
 	const pack = raw;
-	const directory = new URL('.', url);
 	const assets = new Map<string, DecorationAsset>();
 
 	// Relative references name a file inside the pack; they are checked here and rewritten to the
@@ -331,14 +350,14 @@ async function loadPack(url: URL) {
 	return { name: pack.name, themes: pack.themes, definitions, assets };
 }
 
-export async function loadCatalog(urls: Iterable<URL>): Promise<Catalog> {
+export async function loadCatalog(sources: Iterable<PackSource>): Promise<Catalog> {
 	const definitions = new Map<string, DecorationDefinition>();
 	const themes = new Map<string, DecorationTheme>();
 	const assets = new Map<string, DecorationAsset>();
 	const packNames = new Set<string>();
 
-	for (const url of urls) {
-		const pack = await loadPack(url);
+	for (const source of sources) {
+		const pack = await loadPack(source);
 		if (packNames.has(pack.name)) {
 			throw new Error(`Duplicate decoration pack name '${pack.name}'`);
 		}
@@ -371,8 +390,11 @@ export async function loadCatalog(urls: Iterable<URL>): Promise<Catalog> {
 	return { definitions, themes: [ ...themes.values() ], assets };
 }
 
+const readPackSource = async (url: URL): Promise<PackSource> =>
+	({ directory: new URL('.', url), body: await fs.readFile(url, 'utf8') });
+
 /** A pack path from the config may point at a `pack.json` or at the directory holding one. */
-async function resolvePackPath(value: string) {
+async function resolvePackSource(value: string) {
 	const url = pathToFileURL(path.resolve(value));
 	const stat = await async function() {
 		try {
@@ -381,13 +403,13 @@ async function resolvePackPath(value: string) {
 			throw new Error(`Decoration pack '${value}' does not exist`, { cause });
 		}
 	}();
-	return stat.isDirectory() ? new URL('pack.json', `${url.href}/`) : url;
+	return readPackSource(stat.isDirectory() ? new URL('pack.json', `${url.href}/`) : url);
 }
 
-const packUrls = [
-	...config.decorations.builtin ? [ new URL('pack/pack.json', import.meta.url) ] : [],
-	...await Fn.mapAwait(config.decorations.packs ?? [], resolvePackPath),
+const packSources = [
+	...config.decorations?.builtin ?? true ? [ await readPackSource(new URL('pack/pack.json', import.meta.url)) ] : [],
+	...await Fn.mapAwait(config.decorations?.packs ?? [], resolvePackSource),
 ];
 
 /** The catalog this server serves, loaded from the configured packs. */
-export const catalog = await loadCatalog(packUrls);
+export const catalog = await loadCatalog(packSources);

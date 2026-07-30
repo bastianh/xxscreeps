@@ -3,6 +3,6 @@ import * as types from 'xxscreeps/tsroot.js';
 
 export const manifest: Manifest = {
 	dependencies: [],
-	provides: [ 'backend', 'test' ],
+	provides: [ 'backend', 'config', 'test' ],
 	types,
 };

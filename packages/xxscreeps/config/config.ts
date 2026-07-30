@@ -59,35 +59,6 @@ interface BackendProxyConfig {
 	forwardedCount: number;
 }
 
-export interface DecorationsConfig {
-	/**
-	 * Absolute base url of decoration assets, e.g. "https://screeps.example.com". Only needed when
-	 * the client is served from a different origin than the backend; by default assets are
-	 * referenced relative to the document, which is what lets a proxy serve the client under a path
-	 * prefix.
-	 */
-	assetBaseUrl?: string;
-
-	/**
-	 * Whether to load the decoration pack bundled with the server.
-	 * @default true
-	 */
-	builtin?: boolean;
-
-	/**
-	 * Whether every user owns the whole decoration catalog. With this off, decorations must be
-	 * handed out explicitly with `xxscreeps manage decoration grant`.
-	 * @default true
-	 */
-	grantAll?: boolean;
-
-	/**
-	 * Additional decoration packs to load. Each entry is a path to a `pack.json`, or to the
-	 * directory holding one.
-	 */
-	packs?: string[];
-}
-
 export interface DatabaseConfig {
 	/**
 	 * Persistent storage provider URI
@@ -249,11 +220,6 @@ export interface Config {
 	backend?: BackendConfig;
 
 	/**
-	 * Room decoration settings
-	 */
-	decorations?: DecorationsConfig;
-
-	/**
 	 * Game settings
 	 */
 	game?: GameConfig;
@@ -309,10 +275,6 @@ export const defaults = {
 		allowGuestAccess: Boolean(true),
 		bind: '*',
 		socketThrottle: 125,
-	},
-	decorations: {
-		builtin: Boolean(true),
-		grantAll: Boolean(true),
 	},
 	game: {
 		respawnTimeout: 0,

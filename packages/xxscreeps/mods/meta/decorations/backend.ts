@@ -27,7 +27,7 @@ hooks.register('route', {
 			ok: 1,
 			list: items.map(item => ({
 				_id: item.id,
-				createdAt: new Date(item.createdAt).toISOString(),
+				...item.createdAt !== undefined && { createdAt: new Date(item.createdAt).toISOString() },
 				// Placing decorations arrives with activation; until then nothing is placed.
 				active: null,
 				decoration: toClientDefinition(item.definition),

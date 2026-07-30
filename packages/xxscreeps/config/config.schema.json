@@ -79,32 +79,6 @@
       ],
       "type": "object"
     },
-    "DecorationsConfig": {
-      "properties": {
-        "assetBaseUrl": {
-          "description": "Absolute base url of decoration assets, e.g. \"https://screeps.example.com\". Only needed when the client is served from a different origin than the backend; by default assets are referenced by path, relative to the backend itself.",
-          "type": "string"
-        },
-        "builtin": {
-          "default": true,
-          "description": "Whether to load the decoration pack bundled with the server.",
-          "type": "boolean"
-        },
-        "grantAll": {
-          "default": true,
-          "description": "Whether every user owns the whole decoration catalog. With this off, decorations must be handed out explicitly with `xxscreeps manage decoration grant`.",
-          "type": "boolean"
-        },
-        "packs": {
-          "description": "Additional decoration packs to load. Each entry is a path to a `pack.json`, or to the directory holding one.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
     "GameConfig": {
       "properties": {
         "respawnTimeout": {
@@ -238,10 +212,6 @@
     "database": {
       "$ref": "#/definitions/DatabaseConfig",
       "description": "Configuration for global database storage"
-    },
-    "decorations": {
-      "$ref": "#/definitions/DecorationsConfig",
-      "description": "Room decoration settings"
     },
     "game": {
       "$ref": "#/definitions/GameConfig",

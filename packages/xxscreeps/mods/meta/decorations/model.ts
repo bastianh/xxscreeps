@@ -14,20 +14,19 @@ import { catalog } from './catalog.js';
 // customisation option rather than something to earn. Explicit grants are still written and kept;
 // they take effect once `grantAll` is turned off.
 
-/** hash: itemId → {@link StoredDecoration}. One entry per decoration the user was granted. */
-export const inventoryKey = (userId: string) => `user/${userId}/decorations`;
+/** set: ids of the inventory items `userId` was granted. */
+const inventoryKey = (userId: string) => `user/${userId}/decorations`;
+/** hash: `{ def, createdAt }` of one granted item. */
+const itemKey = (userId: string, itemId: string) => `user/${userId}/decorations/${itemId}`;
 
-interface StoredDecoration {
-	def: string;
-	createdAt: number;
-}
+export const grantAll = () => config.decorations?.grantAll ?? true;
 
 /** One decoration a user owns, resolved against the catalog. */
 export interface OwnedDecoration {
 	id: string;
 	definition: DecorationDefinition;
-	/** Epoch milliseconds; `0` for the implicit ownership `grantAll` hands out. */
-	createdAt: number;
+	/** Epoch milliseconds. Absent for the implicit ownership `grantAll` hands out. */
+	createdAt?: number;
 }
 
 /**
@@ -37,22 +36,23 @@ export interface OwnedDecoration {
  * out of the listing; the grant becomes visible again once the pack is back.
  */
 export async function listForUser(db: Database, userId: string): Promise<OwnedDecoration[]> {
-	if (config.decorations.grantAll) {
+	if (grantAll()) {
 		// Implicit ownership has no record to carry an id, so the decoration's own id names the
 		// item. That keeps the id stable across restarts, which is what the client needs to place
 		// and remove one.
-		return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition, createdAt: 0 })) ];
+		return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition })) ];
 	}
-	const stored = await db.data.hGetAll(inventoryKey(userId));
-	return [ ...Fn.filter(Fn.map(Object.entries(stored), ([ id, payload ]) => {
-		const { def, createdAt } = JSON.parse(payload) as StoredDecoration;
-		const definition = catalog.definitions.get(def);
+	const ids = await db.data.sMembers(inventoryKey(userId));
+	const items = await Fn.mapAwait(ids, async (id): Promise<OwnedDecoration | undefined> => {
+		const fields = await db.data.hGetAll(itemKey(userId, id));
+		const definition = catalog.definitions.get(fields.def!);
 		if (definition === undefined) {
-			console.warn(`User ${userId} owns decoration '${def}', which no loaded pack defines`);
+			console.warn(`User ${userId} owns decoration '${fields.def}', which no loaded pack defines`);
 			return;
 		}
-		return { id, definition, createdAt };
-	})) ];
+		return { id, definition, createdAt: Number(fields.createdAt) };
+	});
+	return [ ...Fn.filter(items) ];
 }
 
 /** Give `userId` a decoration from the catalog. Returns the id of the new inventory item. */
@@ -61,18 +61,28 @@ export async function grant(db: Database, userId: string, definitionId: string) 
 		throw new Error(`No such decoration: ${definitionId}`);
 	}
 	const id = generateId(12);
-	const stored: StoredDecoration = { def: definitionId, createdAt: Date.now() };
-	await db.data.hSet(inventoryKey(userId), id, JSON.stringify(stored));
+	await Promise.all([
+		db.data.sAdd(inventoryKey(userId), [ id ]),
+		db.data.hmSet(itemKey(userId, id), { def: definitionId, createdAt: Date.now() }),
+	]);
 	return id;
 }
 
 /** Take an inventory item away again. Returns false if the user didn't have it. */
 export async function revoke(db: Database, userId: string, itemId: string) {
-	return await db.data.hDel(inventoryKey(userId), [ itemId ]) > 0;
+	const [ removed ] = await Promise.all([
+		db.data.sRem(inventoryKey(userId), [ itemId ]),
+		db.data.del(itemKey(userId, itemId)),
+	]);
+	return removed > 0;
 }
 
-export async function removeAllForUser(db: Database, userId: string) {
-	await db.data.del(inventoryKey(userId));
+async function removeAllForUser(db: Database, userId: string) {
+	const ids = await db.data.sMembers(inventoryKey(userId));
+	await Promise.all([
+		db.data.del(inventoryKey(userId)),
+		...Fn.map(ids, id => db.data.del(itemKey(userId, id))),
+	]);
 }
 
 // Tear down a removed user's decorations as part of `User.remove`.
