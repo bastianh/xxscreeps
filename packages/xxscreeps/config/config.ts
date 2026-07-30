@@ -63,7 +63,8 @@ export interface DecorationsConfig {
 	/**
 	 * Absolute base url of decoration assets, e.g. "https://screeps.example.com". Only needed when
 	 * the client is served from a different origin than the backend; by default assets are
-	 * referenced by path, relative to the backend itself.
+	 * referenced relative to the document, which is what lets a proxy serve the client under a path
+	 * prefix.
 	 */
 	assetBaseUrl?: string;
 

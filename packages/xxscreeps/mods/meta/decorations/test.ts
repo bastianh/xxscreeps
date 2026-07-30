@@ -102,7 +102,7 @@ describe('mods/meta/decorations', () => {
 				{ 'art/floor.svg': '<svg xmlns="http://www.w3.org/2000/svg" />' },
 			);
 			const loaded = await loadCatalog([ pack.url ]);
-			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, '/assets/decorations/test/art/floor.svg');
+			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, 'assets/decorations/test/art/floor.svg');
 			assert.ok(loaded.assets.has('test/art/floor.svg'));
 		});
 
@@ -114,7 +114,7 @@ describe('mods/meta/decorations', () => {
 			});
 			const loaded = await loadCatalog([ pack.url ]);
 			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, 'https://example.com/floor.png');
-			assert.strictEqual(loaded.assets.size, 0);
+			assert.ok(![ ...loaded.assets.values() ].some(asset => asset.kind === 'file'));
 		});
 
 		test('a missing asset is fatal', async () => {
@@ -141,6 +141,73 @@ describe('mods/meta/decorations', () => {
 				{ 'art/floor.txt': 'not an image' },
 			);
 			await assert.rejects(loadCatalog([ pack.url ]), /unsupported file type/);
+		});
+
+		test('a colour property seeded with something else is fatal', async () => {
+			await using pack = await makePack({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, props: { floorBackgroundColor: { type: 'color', default: 'red' } } } ],
+			});
+			await assert.rejects(loadCatalog([ pack.url ]), /not a '#rrggbb' colour/);
+		});
+	});
+
+	describe('previews', () => {
+		test('a landscape without artwork gets one drawn from its colours', async () => {
+			await using pack = await makePack({ name: 'test', themes: [ theme ], decorations: [ landscape ] });
+			const loaded = await loadCatalog([ pack.url ]);
+			const url = 'assets/decorations/_preview/test/test-floor.svg';
+			assert.deepStrictEqual(loaded.definitions.get('test-floor')?.preview, {
+				original: url, '128x128': url, '256x256': url,
+			});
+			const asset = loaded.assets.get('_preview/test/test-floor.svg');
+			assert.strictEqual(asset?.kind, 'generated');
+			assert.match(asset.body, /^<svg /);
+			// The floor colour the pack seeds, undimmed, is what the drawing fills with.
+			assert.match(asset.body, /#123456/);
+		});
+
+		test('a preview the pack declares wins', async () => {
+			await using pack = await makePack(
+				{ name: 'test', themes: [ theme ], decorations: [ { ...landscape, preview: { '128x128': 'art/tile.png' } } ] },
+				{ 'art/tile.png': 'png' },
+			);
+			const loaded = await loadCatalog([ pack.url ]);
+			assert.deepStrictEqual(loaded.definitions.get('test-floor')?.preview, {
+				'128x128': 'assets/decorations/test/art/tile.png',
+			});
+			assert.ok(!loaded.assets.has('_preview/test/test-floor.svg'));
+		});
+
+		test('a type carrying its own artwork gets none', async () => {
+			await using pack = await makePack({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, type: 'wallGraffiti' } ],
+			});
+			const loaded = await loadCatalog([ pack.url ]);
+			assert.strictEqual(loaded.definitions.get('test-floor')?.preview, undefined);
+			assert.strictEqual(loaded.assets.size, 0);
+		});
+
+		test('a landscape without the colours to draw gets none', async () => {
+			await using pack = await makePack({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, props: {} } ],
+			});
+			const loaded = await loadCatalog([ pack.url ]);
+			assert.strictEqual(loaded.definitions.get('test-floor')?.preview, undefined);
+			assert.strictEqual(loaded.assets.size, 0);
+		});
+
+		test('every landscape in the bundled pack has a preview', () => {
+			for (const definition of catalog.definitions.values()) {
+				if ([ 'floorLandscape', 'wallLandscape', 'landscape' ].includes(definition.type)) {
+					assert.ok(definition.preview?.['128x128'] !== undefined, `'${definition._id}' has no preview`);
+				}
+			}
 		});
 	});
 

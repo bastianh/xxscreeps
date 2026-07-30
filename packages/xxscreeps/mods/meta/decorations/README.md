@@ -47,11 +47,20 @@ my-pack/
   `maxHeight`).
 - Asset references are either external urls (`https://…`, `data:…`, `/…`) or paths inside the pack.
   Pack-local files are checked when the server starts and served from
-  `/assets/decorations/<pack>/<path>`.
+  `assets/decorations/<pack>/<path>`. That url is handed to the client relative to the document, not
+  rooted at `/`, because a proxy may serve the client under a path prefix — the steamless client
+  mounts a backend at `/(http://host:21025)/`, and a rooted url would escape it. Set
+  `decorations.assetBaseUrl` when the assets need an absolute url instead.
+- `preview` is what the client's inventory shows, as `original`, `128x128` and `256x256`. A landscape
+  that declares none gets an svg drawn from its own colours, so a colour-only pack needs no image
+  files at all. Declaring a `preview` replaces the drawing. Types with artwork of their own —
+  `wallGraffiti`, `creep`, `object` — are never drawn for; give them a `preview`. Note that the
+  official client sanitizes these urls: a `data:` preview only survives as one of the raster types
+  Angular allows, never as `data:image/svg+xml`. Pack-local files and http urls are always fine.
 
 Anything wrong with a pack — an unknown type, a missing asset, a dangling theme or property
-reference, a duplicate id — fails the server at startup rather than handing the client something it
-cannot render.
+reference, a duplicate id, a colour property seeded with something that is not `#rrggbb` — fails the
+server at startup rather than handing the client something it cannot render.
 
 ## Configuration
 

@@ -44,8 +44,9 @@ hooks.register('route', {
 	},
 });
 
-// Pack assets. Only files the catalog references are servable — the request never names a path on
-// disk, it names a key in that map, so there is nothing to sanitize.
+// Pack assets: files a pack ships, plus the previews the catalog drew for its landscapes. Only what
+// the catalog registered is servable — the request never names a path on disk, it names a key in
+// that map, so there is nothing to sanitize.
 const assetCache = new Map<string, { body: Buffer; etag: string; type: string }>();
 
 hooks.register('route', {
@@ -54,11 +55,11 @@ hooks.register('route', {
 	async execute(context) {
 		const key = context.params.asset!;
 		const asset = assetCache.get(key) ?? await async function() {
-			const file = catalog.assets.get(key);
-			if (file === undefined) {
+			const source = catalog.assets.get(key);
+			if (source === undefined) {
 				return;
 			}
-			const body = await fs.readFile(file);
+			const body = source.kind === 'file' ? await fs.readFile(source.file) : Buffer.from(source.body);
 			const entry = {
 				body,
 				etag: makeEtag(body),

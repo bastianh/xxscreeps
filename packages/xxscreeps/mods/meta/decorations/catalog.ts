@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Ajv } from 'ajv';
 import { config } from 'xxscreeps/config/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
+import { renderPreview } from './preview.js';
 
 // The catalog is the set of decorations this server offers. It is static data, not user data:
 // definitions are authored in *decoration packs* and loaded once at startup. A pack is a
@@ -102,11 +103,16 @@ export interface DecorationPack {
 	decorations: DecorationDefinition[];
 }
 
+/** Something the asset route serves: a file a pack ships, or content the catalog drew for it. */
+export type DecorationAsset =
+	{ kind: 'file'; file: URL } |
+	{ kind: 'generated'; body: string };
+
 export interface Catalog {
 	definitions: ReadonlyMap<string, DecorationDefinition>;
 	themes: readonly DecorationTheme[];
-	/** Files referenced by the loaded packs, keyed by their `<pack>/<file>` public path. */
-	assets: ReadonlyMap<string, URL>;
+	/** Assets the loaded packs reference, keyed by their public path under `/assets/decorations/`. */
+	assets: ReadonlyMap<string, DecorationAsset>;
 }
 
 const propSchema = {
@@ -221,8 +227,17 @@ export function assetContentType(file: string) {
 	return contentTypes[path.extname(file).toLowerCase()];
 }
 
-/** Public url prefix of pack assets. Relative by default; absolute when a base url is configured. */
-const assetUrlPrefix = `${config.decorations.assetBaseUrl ?? ''}/assets/decorations`;
+/**
+ * Public url prefix of pack assets. Document-relative by default — the client references its own
+ * assets the same way, and it is the only form that survives being served under a path prefix, as
+ * the steamless client does when it proxies a backend at `/(http://host:21025)/`. A root-relative
+ * url would drop that prefix and miss the proxy entirely. The official server sidesteps all of this
+ * by handing out absolute s3 urls, which is what `assetBaseUrl` is for when the assets live on
+ * another origin.
+ */
+const assetUrlPrefix = config.decorations.assetBaseUrl === undefined
+	? 'assets/decorations'
+	: `${config.decorations.assetBaseUrl}/assets/decorations`;
 
 /** Urls a pack may reference without shipping the file: other origins, and data urls. */
 const isExternalUrl = (value: string) => /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i.test(value);
@@ -234,7 +249,7 @@ async function loadPack(url: URL) {
 	}
 	const pack = raw;
 	const directory = new URL('.', url);
-	const assets = new Map<string, URL>();
+	const assets = new Map<string, DecorationAsset>();
 
 	// Relative references name a file inside the pack; they are checked here and rewritten to the
 	// url the asset route serves them from.
@@ -255,7 +270,7 @@ async function loadPack(url: URL) {
 			throw new Error(`Asset '${value}' of decoration pack '${pack.name}' does not exist`, { cause });
 		}
 		const key = `${pack.name}/${decodeURIComponent(file.href.slice(directory.href.length))}`;
-		assets.set(key, file);
+		assets.set(key, { kind: 'file', file });
 		return `${assetUrlPrefix}/${key}`;
 	};
 
@@ -276,11 +291,37 @@ async function loadPack(url: URL) {
 		if (definition.type === 'object' && definition.objectType === undefined) {
 			throw new Error(`Decoration '${definition._id}' is an object overlay but names no 'objectType'`);
 		}
+		// The client and the generated previews both read these straight out as colours, so the
+		// format is checked here rather than wherever one of them trips over it.
+		for (const [ name, prop ] of Object.entries(definition.props)) {
+			if (prop.type === 'color' && prop.default !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(prop.default))) {
+				throw new Error(`Decoration '${definition._id}' seeds colour property '${name}' with '${prop.default}', which is not a '#rrggbb' colour`);
+			}
+		}
+
+		// A landscape carries no artwork, so its preview is drawn from its colours. The key sits
+		// outside every pack's namespace: a file's key starts with the pack name, which the schema
+		// constrains to `^[a-z0-9][a-z0-9-]*$`, so no pack can reference or shadow one of these.
+		const preview = await async function() {
+			if (definition.preview !== undefined) {
+				return resolvePreview(definition.preview);
+			}
+			const drawing = renderPreview(definition);
+			if (drawing === undefined) {
+				return;
+			}
+			const key = `_preview/${pack.name}/${definition._id}.svg`;
+			assets.set(key, { kind: 'generated', body: drawing });
+			// One svg scales to every size the client asks for.
+			const url = `${assetUrlPrefix}/${key}`;
+			return { original: url, '128x128': url, '256x256': url };
+		}();
+
 		return {
 			...definition,
 			...definition.foregroundUrl !== undefined && { foregroundUrl: await resolveAsset(definition.foregroundUrl) },
 			...definition.floorForegroundUrl !== undefined && { floorForegroundUrl: await resolveAsset(definition.floorForegroundUrl) },
-			...definition.preview !== undefined && { preview: await resolvePreview(definition.preview) },
+			...preview !== undefined && { preview },
 			...definition.graphics !== undefined && {
 				graphics: await Fn.mapAwait(definition.graphics, async graphic => ({ ...graphic, url: await resolveAsset(graphic.url) })),
 			},
@@ -293,7 +334,7 @@ async function loadPack(url: URL) {
 export async function loadCatalog(urls: Iterable<URL>): Promise<Catalog> {
 	const definitions = new Map<string, DecorationDefinition>();
 	const themes = new Map<string, DecorationTheme>();
-	const assets = new Map<string, URL>();
+	const assets = new Map<string, DecorationAsset>();
 	const packNames = new Set<string>();
 
 	for (const url of urls) {
