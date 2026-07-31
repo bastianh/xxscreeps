@@ -3,6 +3,7 @@ import type { Placement } from './placement.js';
 import type { Database } from 'xxscreeps/engine/db/index.js';
 import type { Shard } from 'xxscreeps/engine/db/shard.js';
 import { config } from 'xxscreeps/config/index.js';
+import { Channel } from 'xxscreeps/engine/db/channel.js';
 import { hooks as userHooks } from 'xxscreeps/engine/db/user/index.js';
 import { generateId } from 'xxscreeps/engine/schema/id.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
@@ -34,6 +35,19 @@ const roomIndexKey = (shard: string, room: string) => `decorations/${shard}/${ro
 const globalIndexKey = 'decorations/global';
 
 export const grantAll = () => config.decorations?.grantAll ?? true;
+
+/**
+ * Announces that what is placed in a room changed, so open room sockets re-read it. Creep
+ * decorations show up in every room, so they get their own channel that all of them watch.
+ */
+export const getRoomDecorationChannel = (db: Database, shardName: string, room: string) =>
+	new Channel<DecorationUpdate>(db.pubsub, roomIndexKey(shardName, room));
+export const getGlobalDecorationChannel = (db: Database) =>
+	new Channel<DecorationUpdate>(db.pubsub, globalIndexKey);
+
+export interface DecorationUpdate {
+	type: 'updated';
+}
 
 /** One decoration a user owns, resolved against the catalog. */
 export interface OwnedDecoration {
@@ -119,8 +133,17 @@ export async function listForUser(db: Database, userId: string): Promise<OwnedDe
 	});
 }
 
+/** One decoration standing in a room, as the room and map views report it. */
+export interface PlacedDecoration {
+	id: string;
+	userId: string;
+	definition: DecorationDefinition;
+	active: Placement;
+	activatedAt: number;
+}
+
 /** Everything placed in one room, across all users, plus the creep decorations that ride along. */
-export async function listForRoom(db: Database, shardName: string, room: string) {
+export async function listForRoom(db: Database, shardName: string, room: string): Promise<PlacedDecoration[]> {
 	const [ placed, global ] = await Promise.all([
 		db.data.sMembers(roomIndexKey(shardName, room)),
 		db.data.sMembers(globalIndexKey),
@@ -213,9 +236,16 @@ export async function activate(
 		}),
 		db.data.sAdd(index, [ indexMember(userId, itemId) ]),
 		db.data.sAdd(activeIndexKey(userId), [ itemId ]),
+		announce(db, placement.shard, room),
 	]);
 	return undefined;
 }
+
+/** Tell open room sockets to re-read. Fired alongside the write, since reads are not synchronized. */
+const announce = (db: Database, shardName: string | undefined, room: string | undefined) =>
+	shardName === undefined || room === undefined
+		? getGlobalDecorationChannel(db).publish({ type: 'updated' })
+		: getRoomDecorationChannel(db, shardName, room).publish({ type: 'updated' });
 
 /** Take items off the map. Unknown or already-unplaced ids are left alone. */
 export async function deactivate(db: Database, userId: string, itemIds: Iterable<string>) {
@@ -231,6 +261,7 @@ export async function deactivate(db: Database, userId: string, itemIds: Iterable
 			db.data.del(activeKey(userId, itemId)),
 			db.data.sRem(index, [ indexMember(userId, itemId) ]),
 			db.data.sRem(activeIndexKey(userId), [ itemId ]),
+			announce(db, fields.shard, fields.room),
 		]);
 	});
 }

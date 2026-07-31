@@ -10,15 +10,24 @@ import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
 import { catalog, loadCatalog } from './catalog.js';
 import { activate, deactivate, grant, listForRoom, listForUser, revoke } from './model.js';
-import { conflicts, parsePlacement } from './placement.js';
+import { conflicts, isOnWorldMap, parsePlacement } from './placement.js';
 
 const alice = '100';
 const shard = 'shard0';
 const roomName = 'W10N10';
 const otherRoomName = 'W10N9';
 
-/** The simplest legal placement: a floor landscape in `roomName`, all properties defaulted. */
-const floorPlacement = () => ({ shard, room: roomName, props: {} });
+/**
+ * A floor landscape placement, built the way the activate route builds one — so the tests see the
+ * defaults the definition seeds rather than an empty property bag.
+ */
+function floorPlacement(active: Record<string, unknown> = {}) {
+	const placement = parsePlacement(catalog.definitions.get('xx-floor-plain')!, { shard, room: roomName, ...active });
+	if ('error' in placement) {
+		throw new Error(placement.error);
+	}
+	return placement;
+}
 
 /** Toggle implicit ownership for one test, restoring whatever the config said. */
 function withGrantAll(grantAll: boolean) {
@@ -291,6 +300,14 @@ describe('mods/meta/decorations', () => {
 			assert.strictEqual(placement.props.floorBackgroundColor, floor.props.floorBackgroundColor!.default);
 		});
 
+		test('a creep decoration names no room, since it follows its owner', () => {
+			const creep = { ...floor, _id: 'test-creep', type: 'creep' as const };
+			const placement = parsePlacement(creep, {});
+			assert.ok(!('error' in placement));
+			assert.strictEqual(placement.room, undefined);
+			assert.strictEqual(placement.shard, undefined);
+		});
+
 		test('a landscape collides with both halves it paints', () => {
 			assert.ok(conflicts(room, floor));
 			assert.ok(conflicts(room, wall));
@@ -334,9 +351,7 @@ describe('mods/meta/decorations', () => {
 			await using testShard = await instantiateTestShard();
 			using grantAll = withGrantAll(true);
 			await ownRoom(testShard);
-			const result = await activate(testShard.db, testShard.shard, alice, 'xx-floor-plain', {
-				shard, room: 'W99N99', props: {},
-			});
+			const result = await activate(testShard.db, testShard.shard, alice, 'xx-floor-plain', floorPlacement({ room: 'W99N99' }));
 			assert.deepStrictEqual(result, { error: 'unknown room' });
 		});
 
@@ -367,7 +382,7 @@ describe('mods/meta/decorations', () => {
 			await testShard.shard.scratch.sAdd(controlledRoomsKey(alice), [ otherRoomName ]);
 
 			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
-			await activate(db, testShard.shard, alice, 'xx-floor-plain', { shard, room: otherRoomName, props: {} });
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement({ room: otherRoomName }));
 
 			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
 			assert.strictEqual((await listForRoom(db, shard, otherRoomName)).length, 1);
@@ -395,6 +410,22 @@ describe('mods/meta/decorations', () => {
 			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
 			await User.remove(db, alice);
 			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
+		});
+
+		test('the world-map flag survives the round trip through storage', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			// The bundled pack seeds `world` on, so a defaulted placement is map-visible.
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			const [ shown ] = await listForRoom(db, shard, roomName);
+			assert.strictEqual(isOnWorldMap(shown!.active), true);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement({ world: false }));
+			const [ hidden ] = await listForRoom(db, shard, roomName);
+			assert.strictEqual(isOnWorldMap(hidden!.active), false);
 		});
 	});
 });

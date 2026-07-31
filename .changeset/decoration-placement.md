@@ -2,4 +2,4 @@
 "xxscreeps": patch
 ---
 
-Let players place and remove the decorations they own.
+Serve placed decorations to the room view and the world map.

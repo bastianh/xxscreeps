@@ -15,9 +15,9 @@ The web client is the reference for every data format.
 | Feature flag `inventory` in `/api/version` → `serverData.features` | done |
 | `POST /api/user/decorations/activate` `{ _id, active }` | done |
 | `POST /api/user/decorations/deactivate` `{ decorations: string[] }` | done |
-| `GET /api/game/room-decorations?room=&shard=` → `{ ok, decorations: Item[] }` | core stub returns `[]` |
-| `decorations[]` in the room tick of the `room:<shard>/<room>` socket | missing |
-| `stat.decorations[]` plus a top-level `decorations` dictionary in `map-stats` | missing |
+| `GET /api/game/room-decorations?room=&shard=` → `{ ok, decorations: Item[] }` | done |
+| `decorations[]` in the room tick of the `room:<shard>/<room>` socket | done |
+| `stat.decorations[]` plus a top-level `decorations` dictionary in `map-stats` | done |
 | `GET /api/user/rooms?reservation` | already served by the controller mod |
 
 Three data types:
@@ -89,14 +89,17 @@ inventory previews are drawn as svg from the definition's own property defaults.
 
 ### Reading placements
 
-`map-stats` asks after hundreds of rooms at once, so a keyval round trip per room is too expensive
-once decorations are on the map. Active decorations are few and change rarely, so the backend will
-hold a registry — `Map<shard/room, Item[]>` plus the global list — filled at `backendReady` and
-kept current over a `Channel` that activate/deactivate publishes on. Keyval stays the truth; the
-registry is only the read path, and it belongs to `model.ts` alone.
+Activate and deactivate publish on a channel per room, plus one shared channel for the creep
+decorations that show up everywhere. An open room socket listens to both and re-reads only when one
+of them fires, so an idle room costs nothing per tick.
 
-This is not built yet. `listForRoom` reads the index directly, which is correct and fast enough for
-the room endpoint; the registry is what Phase 4 needs.
+An earlier draft of this plan called for a process-global registry — `Map<shard/room, Item[]>`
+filled at `backendReady` and invalidated over the same channel — because `map-stats` asks after
+hundreds of rooms at once. That is not built, deliberately. The reads already pipeline: `map-stats`
+fans out over rooms through `Fn.mapAwait`, which is `Promise.all` underneath, and each room issues
+its two set reads together, so a map request costs a couple of round trips of wall time rather than
+one per room. A registry would add a mutable process-global plus cross-process invalidation to
+solve a problem that has not shown up. Build it when a profile says to, not before.
 
 ## Phases
 
@@ -128,22 +131,24 @@ the decoration directly. Explicit grants are still written and surface once the 
 - `creep` decorations are global — no room, no ownership check, indexed under `decorations/global`.
 - Activating an already-placed item moves it. The client depends on this when repositioning.
 
-### Phase 3 — the room view
+### Phase 3 — the room view *(done)*
 
-- `GET /api/game/room-decorations`, and **delete the core stub** in `backend/endpoints/game/room.ts`.
-- A `roomSocket` hook. The hook returns a per-tick function whose object is merged into the tick
-  message, so returning `{ decorations }` is all it takes. Send it only when it changes — the
-  registry carries a version per room for that.
-- This lights up `wallGraffiti`, `creep` and `object` at the same time: the client already has those
-  render paths and only lacks data.
+`GET /api/game/room-decorations` serves the room, and the core stub it replaced is gone from
+`backend/endpoints/game/room.ts` — that file keeps `room-status`, which is not a decorations
+concern. A `roomSocket` hook merges `decorations` into the tick message, re-reading only after one
+of the two channels fires.
 
-### Phase 4 — the world map
+This lights up `wallGraffiti`, `creep` and `object` at the same time: the client already has those
+render paths and only lacked data.
 
-- A `mapStats` hook: per room `stats.decorations = [{ _id, user, decoration: <defId>, active }]`,
-  filtered to placements whose `world` property is set, adding each owner to `userIds`.
-- The referenced definitions go in the top-level response as a dictionary
-  `id → { type, graphics, tiling, foregroundUrl, floorForegroundUrl }`. Without it the client falls
-  back to guessing from fields; with it the detection is type-based.
+### Phase 4 — the world map *(done)*
+
+A `mapStats` hook fills `stats.decorations = [{ _id, user, decoration: <defId>, active }]` per room,
+filtered to placements whose `world` property is set, adding each owner to `userIds`. The referenced
+definitions go in the top-level response as a dictionary
+`id → { type, graphics, tiling, foregroundUrl, floorForegroundUrl }`, so a decoration placed in
+fifty rooms is described once and the client's detection is type-based rather than guessed from
+which fields happen to be present.
 
 ### Later, if ever
 
