@@ -7,7 +7,7 @@ import { Channel } from 'xxscreeps/engine/db/channel.js';
 import { hooks as userHooks } from 'xxscreeps/engine/db/user/index.js';
 import { generateId } from 'xxscreeps/engine/schema/id.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
-import { controlledRoomsKey, reservedRoomsKey } from 'xxscreeps/mods/classic/controller/model.js';
+import { isRoomControlled, isRoomReserved } from 'xxscreeps/mods/classic/controller/model.js';
 import { catalog } from './catalog.js';
 import { conflicts, decodeProps, encodeProps } from './placement.js';
 
@@ -142,13 +142,10 @@ export interface PlacedDecoration {
 	activatedAt: number;
 }
 
-/** Everything placed in one room, across all users, plus the creep decorations that ride along. */
-export async function listForRoom(db: Database, shardName: string, room: string): Promise<PlacedDecoration[]> {
-	const [ placed, global ] = await Promise.all([
-		db.data.sMembers(roomIndexKey(shardName, room)),
-		db.data.sMembers(globalIndexKey),
-	]);
-	const items = await Fn.mapAwait(Fn.concat<string>([ placed, global ]), async member => {
+/** Everything one placement index holds, resolved against the catalog. */
+async function listForIndex(db: Database, key: string): Promise<PlacedDecoration[]> {
+	const members = await db.data.sMembers(key);
+	const items = await Fn.mapAwait(members, async member => {
 		const { userId, itemId } = parseIndexMember(member);
 		const definition = await ownedDefinition(db, userId, itemId);
 		if (definition === undefined) {
@@ -163,6 +160,17 @@ export async function listForRoom(db: Database, shardName: string, room: string)
 	return [ ...Fn.filter(items) ];
 }
 
+/** Everything placed in one room, across all users. */
+export const listForRoom = (db: Database, shardName: string, room: string) =>
+	listForIndex(db, roomIndexKey(shardName, room));
+
+/**
+ * The creep decorations, which follow their owner instead of a room and so show up in every one of
+ * them. They are the same set no matter which room is being viewed, which is why a caller reading
+ * many rooms — the world map — asks for them once rather than per room.
+ */
+export const listGlobal = (db: Database) => listForIndex(db, globalIndexKey);
+
 /** Give `userId` a decoration from the catalog. Returns the id of the new inventory item. */
 export async function grant(db: Database, userId: string, definitionId: string) {
 	if (!catalog.definitions.has(definitionId)) {
@@ -176,21 +184,29 @@ export async function grant(db: Database, userId: string, definitionId: string) 
 	return id;
 }
 
-/** Take an inventory item away again. Returns false if the user didn't have it. */
+/**
+ * Take an inventory item away again. Returns false if the user didn't have it — which is the answer
+ * for every id under `grantAll`, whose ownership has no grant to take away. Ownership goes first so
+ * that a `false` leaves the placement where it was rather than half-revoking an item the caller is
+ * about to be told they never held.
+ */
 export async function revoke(db: Database, userId: string, itemId: string) {
-	await deactivate(db, userId, [ itemId ]);
 	const [ removed ] = await Promise.all([
 		db.data.sRem(inventoryKey(userId), [ itemId ]),
 		db.data.del(itemKey(userId, itemId)),
 	]);
-	return removed > 0;
+	if (removed === 0) {
+		return false;
+	}
+	await deactivate(db, userId, [ itemId ]);
+	return true;
 }
 
 /** Whether `userId` holds or reserves `room`, which placing something there requires. */
 async function controlsRoom(shard: Shard, userId: string, room: string) {
 	const [ controlled, reserved ] = await Promise.all([
-		shard.scratch.sIsMember(controlledRoomsKey(userId), room),
-		shard.scratch.sIsMember(reservedRoomsKey(userId), room),
+		isRoomControlled(shard, userId, room),
+		isRoomReserved(shard, userId, room),
 	]);
 	return controlled || reserved;
 }
@@ -215,18 +231,21 @@ export async function activate(
 		} else if ((config.decorations?.requireRoomOwnership ?? true) && !await controlsRoom(shard, userId, room)) {
 			return { error: 'room not controlled' };
 		}
-		const roommates = await listForRoom(db, shard.name, room);
-		const blocked = roommates.some(other =>
-			other.userId === userId && other.id !== itemId && conflicts(definition, other.definition));
-		if (blocked) {
-			return { error: 'already decorated' };
-		}
+	}
+
+	// Two of a user's decorations argue when they land in the same index: a room's, or — for the
+	// creep decorations, which are placed nowhere in particular — the global one.
+	const index = room === undefined ? globalIndexKey : roomIndexKey(shard.name, room);
+	const neighbors = await listForIndex(db, index);
+	const blocked = neighbors.some(other =>
+		other.userId === userId && other.id !== itemId && conflicts(definition, other.definition));
+	if (blocked) {
+		return { error: 'already decorated' };
 	}
 
 	// Moving an item out of its old room has to happen before the new placement is indexed,
 	// otherwise a move within one room would drop the entry it just wrote.
 	await deactivate(db, userId, [ itemId ]);
-	const index = room === undefined ? globalIndexKey : roomIndexKey(shard.name, room);
 	await Promise.all([
 		db.data.hmSet(activeKey(userId, itemId), {
 			activatedAt: Date.now(),

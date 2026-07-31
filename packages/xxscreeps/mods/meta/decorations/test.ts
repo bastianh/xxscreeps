@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { config } from 'xxscreeps/config/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
-import { controlledRoomsKey } from 'xxscreeps/mods/classic/controller/model.js';
+import { insertControlledRoom } from 'xxscreeps/mods/classic/controller/model.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
 import { catalog, loadCatalog } from './catalog.js';
@@ -333,8 +333,8 @@ describe('mods/meta/decorations', () => {
 
 	describe('activation', () => {
 		/** Placing needs a room the player holds, which the test shard does not hand out. */
-		async function ownRoom(testShard: Awaited<ReturnType<typeof instantiateTestShard>>) {
-			await testShard.shard.scratch.sAdd(controlledRoomsKey(alice), [ roomName ]);
+		async function ownRoom(testShard: Awaited<ReturnType<typeof instantiateTestShard>>, room = roomName) {
+			await insertControlledRoom(testShard.shard, alice, room);
 		}
 
 		test('an owned decoration can be placed and shows up in the room', async () => {
@@ -394,7 +394,7 @@ describe('mods/meta/decorations', () => {
 			using grantAll = withGrantAll(true);
 			const { db } = testShard;
 			await ownRoom(testShard);
-			await testShard.shard.scratch.sAdd(controlledRoomsKey(alice), [ otherRoomName ]);
+			await ownRoom(testShard, otherRoomName);
 
 			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
 			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement({ room: otherRoomName }));
@@ -414,6 +414,18 @@ describe('mods/meta/decorations', () => {
 			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
 			const [ item ] = (await listForUser(db, alice)).filter(each => each.id === 'xx-floor-plain');
 			assert.strictEqual(item?.active, undefined);
+		});
+
+		test('a revoke that finds no grant leaves the placement alone', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			// Implicit ownership has no grant to take away, so this fails — without undoing the placement.
+			assert.strictEqual(await revoke(db, alice, 'xx-floor-plain'), false);
+			assert.strictEqual((await listForRoom(db, shard, roomName)).length, 1);
 		});
 
 		test('removing a user takes their placements with them', async () => {

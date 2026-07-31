@@ -6,7 +6,7 @@ import makeEtag from 'etag';
 import { hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { assetContentType, catalog } from './catalog.js';
-import { activate, deactivate, getGlobalDecorationChannel, getRoomDecorationChannel, listForRoom, listForUser, ownedDefinition } from './model.js';
+import { activate, deactivate, getGlobalDecorationChannel, getRoomDecorationChannel, listForRoom, listForUser, listGlobal, ownedDefinition } from './model.js';
 import { isOnWorldMap, parsePlacement, placementToWire } from './placement.js';
 
 /**
@@ -90,10 +90,13 @@ interface DeactivateRequest {
 	decorations: string[];
 }
 
+/** Well past what the client sends at once, and low enough that one request stays one batch of reads. */
+const maxDeactivateCount = 256;
+
 const deactivateSchema: JSONSchemaType<DeactivateRequest> = {
 	type: 'object',
 	properties: {
-		decorations: { type: 'array', items: { type: 'string', minLength: 1 } },
+		decorations: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: maxDeactivateCount },
 	},
 	required: [ 'decorations' ],
 };
@@ -176,8 +179,11 @@ hooks.register('route', {
 
 	execute: makeValidatedQueryRoute(roomDecorationsSchema, async context => {
 		const { room, shard } = context.request.query;
-		const items = await listForRoom(context.db, shard ?? context.shard.name, room);
-		return { ok: 1, decorations: items.map(toClientItem) };
+		const [ placed, global ] = await Promise.all([
+			listForRoom(context.db, shard ?? context.shard.name, room),
+			listGlobal(context.db),
+		]);
+		return { ok: 1, decorations: [ ...placed, ...global ].map(toClientItem) };
 	}),
 });
 
@@ -201,12 +207,17 @@ hooks.register('roomSocket', async (shard, userId, roomName) => {
 				return {};
 			}
 			stale = false;
-			const items = await listForRoom(shard.db, shard.name, roomName);
-			return { decorations: items.map(toClientItem) };
+			const [ placed, global ] = await Promise.all([
+				listForRoom(shard.db, shard.name, roomName),
+				listGlobal(shard.db),
+			]);
+			return { decorations: [ ...placed, ...global ].map(toClientItem) };
 		},
 	];
 });
 
+// Creep decorations are deliberately absent: they belong to a creep rather than to a room, so there
+// is no room for the map to draw them in.
 hooks.register('mapStats', async (context, { rooms, response, userIds }) => {
 	const decorations: Record<string, unknown> = {};
 	await Fn.mapAwait(rooms, async ({ room, stats }) => {
