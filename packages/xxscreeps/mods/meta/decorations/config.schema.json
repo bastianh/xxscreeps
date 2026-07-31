@@ -22,6 +22,11 @@
                     "description": "Additional decoration packs to load. Each entry is a path to a `pack.json`, or to the directory holding one.",
                     "items": { "type": "string" },
                     "type": "array"
+                },
+                "requireRoomOwnership": {
+                    "description": "Whether placing a decoration requires the player to control or reserve the room.",
+                    "type": "boolean",
+                    "default": true
                 }
             },
             "type": "object"

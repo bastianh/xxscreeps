@@ -5,12 +5,20 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { config } from 'xxscreeps/config/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
+import { controlledRoomsKey } from 'xxscreeps/mods/classic/controller/model.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
 import { catalog, loadCatalog } from './catalog.js';
-import { grant, listForUser, revoke } from './model.js';
+import { activate, deactivate, grant, listForRoom, listForUser, revoke } from './model.js';
+import { conflicts, parsePlacement } from './placement.js';
 
 const alice = '100';
+const shard = 'shard0';
+const roomName = 'W10N10';
+const otherRoomName = 'W10N9';
+
+/** The simplest legal placement: a floor landscape in `roomName`, all properties defaulted. */
+const floorPlacement = () => ({ shard, room: roomName, props: {} });
 
 /** Toggle implicit ownership for one test, restoring whatever the config said. */
 function withGrantAll(grantAll: boolean) {
@@ -255,6 +263,138 @@ describe('mods/meta/decorations', () => {
 			await grant(db, alice, definition!._id);
 			await User.remove(db, alice);
 			assert.deepStrictEqual(await listForUser(db, alice), []);
+		});
+	});
+
+	describe('placement', () => {
+		const floor = catalog.definitions.get('xx-floor-plain')!;
+		const wall = catalog.definitions.get('xx-wall-plain')!;
+		const room = catalog.definitions.get('xx-room-neon')!;
+
+		test('property values are checked against the definition', () => {
+			assert.ok('error' in parsePlacement(floor, { shard, room: roomName, nope: 1 }));
+			assert.ok('error' in parsePlacement(floor, { shard, room: roomName, floorBackgroundColor: 'red' }));
+			assert.ok('error' in parsePlacement(floor, { shard, room: roomName, floorBackgroundBrightness: 99 }));
+			assert.ok('error' in parsePlacement(floor, { floorBackgroundColor: '#123456' }), 'a room is required');
+		});
+
+		test('numbers and booleans are accepted in their string spelling', () => {
+			const placement = parsePlacement(floor, { shard, room: roomName, floorBackgroundBrightness: '0.5', world: 'true' });
+			assert.ok(!('error' in placement));
+			assert.strictEqual(placement.props.floorBackgroundBrightness, 0.5);
+			assert.strictEqual(placement.props.world, true);
+		});
+
+		test('properties the client leaves out fall back to the definition seed', () => {
+			const placement = parsePlacement(floor, { shard, room: roomName });
+			assert.ok(!('error' in placement));
+			assert.strictEqual(placement.props.floorBackgroundColor, floor.props.floorBackgroundColor!.default);
+		});
+
+		test('a landscape collides with both halves it paints', () => {
+			assert.ok(conflicts(room, floor));
+			assert.ok(conflicts(room, wall));
+			assert.ok(!conflicts(floor, wall));
+			assert.ok(conflicts(floor, floor));
+		});
+	});
+
+	describe('activation', () => {
+		/** Placing needs a room the player holds, which the test shard does not hand out. */
+		async function ownRoom(testShard: Awaited<ReturnType<typeof instantiateTestShard>>) {
+			await testShard.shard.scratch.sAdd(controlledRoomsKey(alice), [ roomName ]);
+		}
+
+		test('an owned decoration can be placed and shows up in the room', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			assert.strictEqual(await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement()), undefined);
+			const placed = await listForRoom(db, shard, roomName);
+			assert.strictEqual(placed.length, 1);
+			assert.strictEqual(placed[0]?.id, 'xx-floor-plain');
+			assert.strictEqual(placed[0].userId, alice);
+			assert.strictEqual(placed[0].active.room, roomName);
+
+			const [ item ] = (await listForUser(db, alice)).filter(each => each.id === 'xx-floor-plain');
+			assert.strictEqual(item?.active?.room, roomName);
+			assert.ok(item.activatedAt !== undefined);
+		});
+
+		test('placing in a room the player does not hold is refused', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const result = await activate(testShard.db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			assert.deepStrictEqual(result, { error: 'room not controlled' });
+		});
+
+		test('an unknown room is refused', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			await ownRoom(testShard);
+			const result = await activate(testShard.db, testShard.shard, alice, 'xx-floor-plain', {
+				shard, room: 'W99N99', props: {},
+			});
+			assert.deepStrictEqual(result, { error: 'unknown room' });
+		});
+
+		test('a decoration the player does not own is refused', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(false);
+			await ownRoom(testShard);
+			const result = await activate(testShard.db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			assert.deepStrictEqual(result, { error: 'not owned' });
+		});
+
+		test('a landscape refuses a room that already has a floor', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			const result = await activate(db, testShard.shard, alice, 'xx-room-neon', floorPlacement());
+			assert.deepStrictEqual(result, { error: 'already decorated' });
+		});
+
+		test('re-activating moves the decoration instead of duplicating it', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+			await testShard.shard.scratch.sAdd(controlledRoomsKey(alice), [ otherRoomName ]);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', { shard, room: otherRoomName, props: {} });
+
+			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
+			assert.strictEqual((await listForRoom(db, shard, otherRoomName)).length, 1);
+		});
+
+		test('deactivating takes it back off the map', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			await deactivate(db, alice, [ 'xx-floor-plain' ]);
+			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
+			const [ item ] = (await listForUser(db, alice)).filter(each => each.id === 'xx-floor-plain');
+			assert.strictEqual(item?.active, undefined);
+		});
+
+		test('removing a user takes their placements with them', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await ownRoom(testShard);
+
+			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement());
+			await User.remove(db, alice);
+			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
 		});
 	});
 });

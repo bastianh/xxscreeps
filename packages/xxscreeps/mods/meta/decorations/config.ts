@@ -25,6 +25,12 @@ export interface DecorationsSettings {
 	 * directory holding one.
 	 */
 	packs?: string[];
+
+	/**
+	 * Whether placing a decoration requires the player to control or reserve the room.
+	 * @default true
+	 */
+	requireRoomOwnership?: boolean;
 }
 
 export interface DecorationsConfig {
