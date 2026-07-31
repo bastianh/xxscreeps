@@ -104,6 +104,17 @@ export function parsePlacement(definition: DecorationDefinition, active: Record<
 /** Whether a placement is visible on the world map, which the `world` property decides. */
 export const isOnWorldMap = (placement: Placement) => placement.props.world === true;
 
+/**
+ * The flat shape the client exchanges — the target sits alongside the property values rather than
+ * beside them, which is the same shape {@link parsePlacement} reads. A pack property named `shard`
+ * or `room` loses to the target here; storage keeps both apart, so nothing is actually dropped.
+ */
+export const placementToWire = (placement: Placement): Record<string, PropValue> => ({
+	...placement.props,
+	...placement.shard !== undefined && { shard: placement.shard },
+	...placement.room !== undefined && { room: placement.room },
+});
+
 /** Hash fields hold strings; the definition tells {@link decodeProps} what each one was. */
 export const encodeProps = (props: Record<string, PropValue>): Record<string, string> =>
 	Object.fromEntries(Object.entries(props).map(([ name, value ]) =>

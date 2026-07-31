@@ -10,7 +10,7 @@ import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
 import { catalog, loadCatalog } from './catalog.js';
 import { activate, deactivate, grant, listForRoom, listForUser, revoke } from './model.js';
-import { conflicts, isOnWorldMap, parsePlacement } from './placement.js';
+import { conflicts, isOnWorldMap, parsePlacement, placementToWire } from './placement.js';
 
 const alice = '100';
 const shard = 'shard0';
@@ -298,6 +298,21 @@ describe('mods/meta/decorations', () => {
 			const placement = parsePlacement(floor, { shard, room: roomName });
 			assert.ok(!('error' in placement));
 			assert.strictEqual(placement.props.floorBackgroundColor, floor.props.floorBackgroundColor!.default);
+		});
+
+		test('what the client sends round-trips back in the same shape', () => {
+			const sent = { shard, room: roomName, world: false, floorBackgroundColor: '#abcdef' };
+			const placement = parsePlacement(floor, sent);
+			assert.ok(!('error' in placement));
+			// Flat in, flat out: the target sits next to the property values, never wrapping them.
+			const wire = placementToWire(placement);
+			assert.strictEqual(wire.shard, shard);
+			assert.strictEqual(wire.room, roomName);
+			assert.strictEqual(wire.world, false);
+			assert.strictEqual(wire.floorBackgroundColor, '#abcdef');
+			assert.ok(!('props' in wire));
+			// And it parses again unchanged, which is what the client's edit-and-resend does.
+			assert.deepStrictEqual(parsePlacement(floor, wire), placement);
 		});
 
 		test('a creep decoration names no room, since it follows its owner', () => {

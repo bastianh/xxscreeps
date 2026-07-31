@@ -7,7 +7,7 @@ import { hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscr
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { assetContentType, catalog } from './catalog.js';
 import { activate, deactivate, getGlobalDecorationChannel, getRoomDecorationChannel, listForRoom, listForUser, ownedDefinition } from './model.js';
-import { isOnWorldMap, parsePlacement } from './placement.js';
+import { isOnWorldMap, parsePlacement, placementToWire } from './placement.js';
 
 /**
  * A definition as the client wants it: the layout constraints sit inside `props`, next to the
@@ -34,7 +34,7 @@ hooks.register('route', {
 				...item.createdAt !== undefined && { createdAt: new Date(item.createdAt).toISOString() },
 				...item.activatedAt !== undefined && { activatedAt: new Date(item.activatedAt).toISOString() },
 				// `null` is how the client spells "owned, not placed".
-				active: item.active ?? null,
+				active: item.active === undefined ? null : placementToWire(item.active),
 				decoration: toClientDefinition(item.definition),
 			})),
 		};
@@ -153,7 +153,7 @@ hooks.register('route', {
 const toClientItem = (item: PlacedDecoration) => ({
 	_id: item.id,
 	user: item.userId,
-	active: item.active,
+	active: placementToWire(item.active),
 	decoration: toClientDefinition(item.definition),
 });
 
@@ -221,7 +221,7 @@ hooks.register('mapStats', async (context, { rooms, response, userIds }) => {
 			// The client looks the definition up in the dictionary below rather than inline, so the
 			// same decoration placed in fifty rooms is described once.
 			decorations[item.definition._id] = mapDecoration(item.definition);
-			return { _id: item.id, user: item.userId, decoration: item.definition._id, active: item.active };
+			return { _id: item.id, user: item.userId, decoration: item.definition._id, active: placementToWire(item.active) };
 		});
 	});
 	if (Object.keys(decorations).length > 0) {
