@@ -40,13 +40,6 @@ export interface DecorationsConfig {
 	decorations?: DecorationsSettings;
 }
 
-export const defaults = {
-	decorations: {
-		builtin: Boolean(true),
-		grantAll: Boolean(true),
-	},
-};
-
 declare module 'xxscreeps/config/config.js' {
 	interface Config extends DecorationsConfig {}
 }

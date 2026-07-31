@@ -103,27 +103,32 @@ export async function ownedDefinition(db: Database, userId: string, itemId: stri
  * A stored item whose definition is gone — its pack was unloaded — is left in the store but kept
  * out of the listing; the grant becomes visible again once the pack is back.
  */
-export async function listForUser(db: Database, userId: string): Promise<OwnedDecoration[]> {
-	const owned = await async function(): Promise<OwnedDecoration[]> {
-		if (grantAll()) {
-			// Implicit ownership has no record to carry an id, so the decoration's own id names the
-			// item. That keeps the id stable across restarts, which is what the client needs to
-			// place and remove one.
-			return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition })) ];
+async function loadOwned(db: Database, userId: string): Promise<OwnedDecoration[]> {
+	if (grantAll()) {
+		// Implicit ownership has no record to carry an id, so the decoration's own id names the item.
+		// That keeps the id stable across restarts, which is what the client needs to place and
+		// remove one.
+		return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition })) ];
+	}
+	const ids = await db.data.sMembers(inventoryKey(userId));
+	const items = await Fn.mapAwait(ids, async (id): Promise<OwnedDecoration | undefined> => {
+		const fields = await db.data.hGetAll(itemKey(userId, id));
+		const definition = catalog.definitions.get(fields.def!);
+		if (definition === undefined) {
+			console.warn(`User ${userId} owns decoration '${fields.def}', which no loaded pack defines`);
+			return;
 		}
-		const ids = await db.data.sMembers(inventoryKey(userId));
-		const items = await Fn.mapAwait(ids, async (id): Promise<OwnedDecoration | undefined> => {
-			const fields = await db.data.hGetAll(itemKey(userId, id));
-			const definition = catalog.definitions.get(fields.def!);
-			if (definition === undefined) {
-				console.warn(`User ${userId} owns decoration '${fields.def}', which no loaded pack defines`);
-				return;
-			}
-			return { id, definition, createdAt: Number(fields.createdAt) };
-		});
-		return [ ...Fn.filter(items) ];
-	}();
-	const placedIds = new Set(await db.data.sMembers(activeIndexKey(userId)));
+		return { id, definition, createdAt: Number(fields.createdAt) };
+	});
+	return [ ...Fn.filter(items) ];
+}
+
+export async function listForUser(db: Database, userId: string): Promise<OwnedDecoration[]> {
+	const [ owned, placed ] = await Promise.all([
+		loadOwned(db, userId),
+		db.data.sMembers(activeIndexKey(userId)),
+	]);
+	const placedIds = new Set(placed);
 	return Fn.mapAwait(owned, async (item): Promise<OwnedDecoration> => {
 		if (!placedIds.has(item.id)) {
 			return item;

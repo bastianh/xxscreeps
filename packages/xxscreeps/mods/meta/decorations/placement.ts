@@ -1,4 +1,5 @@
 import type { DecorationDefinition, DecorationProp, DecorationType } from './catalog.js';
+import { Fn } from 'xxscreeps/functional/fn.js';
 
 // Everything that maps a definition's property schema onto a placement: parsing what the client
 // sends, encoding it for storage, and reading it back. The definition is the authority for a
@@ -20,6 +21,11 @@ export interface PlacementError {
 	error: string;
 }
 
+/** An accepted property value. */
+interface ParsedProp {
+	value: PropValue;
+}
+
 /** Longest free-form string a property may hold; lists arrive `!SEP!`-joined into one of these. */
 const maxStringLength = 1024;
 
@@ -30,7 +36,7 @@ const isColor = (value: string) => /^#[0-9a-fA-F]{6}$/.test(value);
  * spelling too — the client round-trips placed values through form state and sends back whatever
  * that left behind.
  */
-function parseProp(name: string, prop: DecorationProp, value: unknown): { value: PropValue } | PlacementError {
+function parseProp(name: string, prop: DecorationProp, value: unknown): ParsedProp | PlacementError {
 	switch (prop.type) {
 		case 'boolean': {
 			if (typeof value === 'boolean') {
@@ -115,28 +121,37 @@ export const placementToWire = (placement: Placement): Record<string, PropValue>
 	...placement.room !== undefined && { room: placement.room },
 });
 
+/** Property values share the placement's hash with its target, so they carry a prefix of their own. */
+const propFieldPrefix = 'prop/';
+
 /** Hash fields hold strings; the definition tells {@link decodeProps} what each one was. */
 export const encodeProps = (props: Record<string, PropValue>): Record<string, string> =>
 	Object.fromEntries(Object.entries(props).map(([ name, value ]) =>
-		[ `prop/${name}`, typeof value === 'boolean' ? value ? '1' : '0' : String(value) ]));
+		[ `${propFieldPrefix}${name}`, typeof value === 'boolean' ? value ? '1' : '0' : String(value) ]));
 
-export function decodeProps(definition: DecorationDefinition, fields: Record<string, string>) {
-	const props: Record<string, PropValue> = {};
-	for (const [ field, value ] of Object.entries(fields)) {
-		const name = field.startsWith('prop/') ? field.slice('prop/'.length) : undefined;
-		const prop = name === undefined ? undefined : definition.props[name];
-		if (name !== undefined && prop !== undefined) {
-			props[name] = prop.type === 'boolean' ? value === '1' : prop.type === 'range' ? Number(value) : value;
+const decodeProp = (prop: DecorationProp, value: string): PropValue =>
+	prop.type === 'boolean' ? value === '1' : prop.type === 'range' ? Number(value) : value;
+
+/** Fields naming a property the definition no longer declares are dropped, the way a pack edit leaves them. */
+export const decodeProps = (definition: DecorationDefinition, fields: Record<string, string>) => Fn.pipe(
+	Object.entries(fields),
+	$$ => Fn.transform($$, function*([ field, value ]) {
+		if (field.startsWith(propFieldPrefix)) {
+			const name = field.slice(propFieldPrefix.length);
+			const prop = definition.props[name];
+			if (prop !== undefined) {
+				yield [ name, decodeProp(prop, value) ] as const;
+			}
 		}
-	}
-	return props;
-}
+	}),
+	$$ => Object.fromEntries($$),
+);
 
 /**
  * Decoration types whose presence in a room excludes `type` from it. A landscape paints both the
  * floor and the walls, so it collides with either half; graffiti may be stacked freely.
  */
-export function conflictingTypes(type: DecorationType): readonly DecorationType[] {
+function conflictingTypes(type: DecorationType): readonly DecorationType[] {
 	switch (type) {
 		case 'floorLandscape': return [ 'floorLandscape', 'landscape' ];
 		case 'wallLandscape': return [ 'wallLandscape', 'landscape' ];

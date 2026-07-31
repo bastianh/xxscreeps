@@ -1,10 +1,11 @@
 # Decorations
 
-Room decorations — the cosmetic overlays a player places in their rooms. This mod owns the
-*catalog* (which decorations a server offers) and *ownership* (who has which of them).
+Room decorations — the cosmetic overlays a player places in their rooms. This mod owns the *catalog*
+(which decorations a server offers), *ownership* (who has which of them), *placement*, and serving
+what is placed to the room view and the world map.
 
-Placing decorations, rendering them in rooms and painting them on the world map are not
-implemented yet; see `docs/room-decorations.md` for the plan.
+Decorations are not `RoomObject`s: they cost no bytes in a room blob and the processor never touches
+them. Everything is account state in `db.data`, with `active.shard` naming the target shard.
 
 ## Decoration packs
 
@@ -62,6 +63,45 @@ Anything wrong with a pack — an unknown type, a missing asset, a dangling them
 reference, a duplicate id, a colour property seeded with something that is not `#rrggbb` — fails the
 server at startup rather than handing the client something it cannot render.
 
+## Storage
+
+```
+user/<userId>/decorations                   set:  itemIds with a stored grant
+user/<userId>/decorations/<itemId>          hash: { def, createdAt }
+user/<userId>/decorations/<itemId>/active   hash: { activatedAt, shard, room, prop/<name>… }
+user/<userId>/decorations/active            set:  itemIds this user has placed
+decorations/<shard>/<room>                  set:  `userId/itemId` placed in one room
+decorations/global                          set:  `userId/itemId` of the creep decorations
+```
+
+Each fact gets its own hash field. Property values are prefixed `prop/` so a pack may declare a
+property called `room` without colliding with the placement's own fields, and they are decoded back
+to their declared types on read — the definition is the authority in both directions.
+
+The per-user `active` set exists because `grantAll` makes the inventory as large as the catalog;
+without it, listing an inventory would ask after a placement for every definition on the server.
+
+## Placement
+
+- The item is owned — including implicitly, under `grantAll`.
+- The target shard is this one and the room exists.
+- The player controls or reserves the room, unless `decorations.requireRoomOwnership` is off. That
+  question goes through the controller mod's `isRoomControlled` / `isRoomReserved`, not its keys.
+- Property values are checked against the definition: range bounds, `#rrggbb` colours, string
+  length, unknown properties rejected. An invalid value is an error, never a silent default. Omitted
+  properties fall back to the definition's seed, so a stored placement is always complete.
+- Collisions are checked per user against whichever index the placement lands in: `landscape` blocks
+  `floorLandscape` and `wallLandscape` in the same room, `object` only argues with another `object`
+  decorating the same `objectType`, `wallGraffiti` stacks freely.
+- `creep` decorations name no room — they follow their owner and so appear in every one — and are
+  indexed under `decorations/global`, which is also where they compete with each other. The world map
+  does not draw them: there is no room to draw them in.
+- Activating an already-placed item moves it. The client depends on this when repositioning.
+
+Activate and deactivate publish on a channel per room, plus one shared channel for the creep
+decorations. An open room socket listens to both and re-reads only when one of them fires, so an idle
+room costs nothing per tick.
+
 ## Configuration
 
 ```yaml
@@ -70,6 +110,8 @@ decorations:
   builtin: true
   # Every user owns the whole catalog. Default: true
   grantAll: true
+  # Placing a decoration requires controlling or reserving the room. Default: true
+  requireRoomOwnership: true
   # Extra packs, as a path to a pack.json or the directory holding one
   packs: [ ./my-pack ]
   # Only needed when the client is served from another origin than the backend
@@ -78,7 +120,9 @@ decorations:
 
 ## Handing out decorations
 
-With `grantAll` (the default) there is nothing to do — everybody owns everything. With it off:
+With `grantAll` (the default) there is nothing to do — everybody owns everything, and the ids the
+inventory reports name a decoration rather than a stored grant, so there is nothing to revoke either.
+With it off:
 
 ```sh
 xxscreeps manage decoration catalog
