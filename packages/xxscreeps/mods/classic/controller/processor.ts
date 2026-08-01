@@ -269,7 +269,10 @@ registerObjectTickProcessor(StructureController, (controller, context) => {
 		} else if (ticksToDowngrade === 0) {
 			const { room } = controller;
 			const userId = controller['#user']!;
-			const level = --room['#level'];
+			// The new level is not written to the room here. `release` reads the current level to tell
+			// a controlled room from a reserved one, and both branches below publish the new level
+			// through `updateRoomStatus` anyway.
+			const level = controller.level - 1;
 			controller.safeModeAvailable = 0;
 			const message = `Your Controller in room ${room.name} has been downgraded to level ${level} due to absence of upgrading activity!`;
 			context.task(upsertNotification(context.shard, userId, 'msg', message, 0));

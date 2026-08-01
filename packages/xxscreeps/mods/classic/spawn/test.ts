@@ -471,6 +471,23 @@ describe('mods/classic/spawn', () => {
 			await tick();
 			assert.strictEqual(await getWorldStatus(shard, '100'), 'lost');
 		}));
+
+		// Controller downgrades on the first processed tick, taking it from level 1 to neutral.
+		const aboutToGoNeutral = simulate({
+			W1N1: room => {
+				room['#insertObject'](create(new RoomPosition(25, 25, 'W1N1'), '100', 'Spawn1'));
+				room['#level'] = 1;
+				room['#user'] = room.controller!['#user'] = '100';
+				room.controller!['#downgradeTime'] = 1;
+			},
+		});
+
+		test('a spawn in a room which is no longer yours does not count',
+			() => aboutToGoNeutral(async ({ shard, tick }) => {
+				assert.strictEqual(await getWorldStatus(shard, '100'), 'normal');
+				await tick();
+				assert.strictEqual(await getWorldStatus(shard, '100'), 'lost');
+			}));
 	});
 
 	describe('id-string constructor', () => {

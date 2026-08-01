@@ -9,6 +9,7 @@ import { captureNotificationsForTesting } from 'xxscreeps/mods/meta/notification
 import { assert, describe, simulate, test } from 'xxscreeps/test/index.js';
 import * as C from 'xxscreeps:mods/constants';
 import { StructureController } from './controller.js';
+import { controlledRoomsKey } from './model.js';
 
 describe('mods/classic/controller', () => {
 
@@ -370,6 +371,32 @@ describe('mods/classic/controller', () => {
 					assert.strictEqual(extension.energyCapacity, C.EXTENSION_ENERGY_CAPACITY[7]);
 				});
 			}));
+	});
+
+	describe('downgrade to neutral', () => {
+		// Controller downgrades on the first processed tick, taking it from level 1 to neutral.
+		const aboutToGoNeutral = simulate({
+			W3N3: room => {
+				room['#user'] = '100';
+				room['#level'] = 1;
+				room.controller!['#user'] = '100';
+				room.controller!['#downgradeTime'] = 1;
+			},
+		});
+
+		test('the controller is released', () => aboutToGoNeutral(async ({ peekRoom, tick }) => {
+			await tick();
+			await peekRoom('W3N3', room => {
+				assert.strictEqual(room.controller!.level, 0);
+				assert.strictEqual(room.controller!['#user'], null);
+			});
+		}));
+
+		test('the room drops out of the player\'s controlled rooms', () => aboutToGoNeutral(async ({ shard, tick }) => {
+			assert.deepStrictEqual(await shard.scratch.sMembers(controlledRoomsKey('100')), [ 'W3N3' ]);
+			await tick();
+			assert.strictEqual(await shard.scratch.sCard(controlledRoomsKey('100')), 0);
+		}));
 	});
 
 	describe('lifecycle notifications', () => {
