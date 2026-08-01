@@ -5,6 +5,7 @@ import { Ajv } from 'ajv';
 import { config } from 'xxscreeps/config/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { renderPreview } from './preview.js';
+import { completeDefinition, washes } from './renderer.js';
 
 // The catalog is the set of decorations this server offers. It is static data, not user data:
 // definitions are authored in *decoration packs* and loaded once at startup. A pack is a
@@ -15,8 +16,12 @@ import { renderPreview } from './preview.js';
 // duplicate id) throws while loading. A server that boots with a broken catalog would hand the
 // client definitions it can't render, so this is deliberately fatal.
 
-/** Decoration types the client renders. `landscape` acts as both a floor and a wall landscape. */
-export type DecorationType = 'floorLandscape' | 'wallLandscape' | 'landscape' | 'wallGraffiti' | 'creep' | 'object';
+/**
+ * Decoration types the client renders. `landscape` acts as both a floor and a wall landscape.
+ * `object` draws graphics over a kind of game object; `metadata` replaces how that kind is drawn
+ * altogether. See [renderer.ts](./renderer.ts) for what each one owes the renderer.
+ */
+export type DecorationType = 'floorLandscape' | 'wallLandscape' | 'landscape' | 'wallGraffiti' | 'creep' | 'object' | 'metadata';
 
 export interface DecorationTheme {
 	_id: string;
@@ -92,8 +97,12 @@ export interface DecorationDefinition {
 	/** Repeat the graphics as a tile instead of stretching them. */
 	tiling?: boolean;
 	tileScale?: number;
-	/** Target object type, `object` only. */
+	/** Target object type, `object` and `metadata` only. */
 	objectType?: string;
+	/** Renderer resources the target object type draws from, keyed by alias. `metadata` only. */
+	resources?: Record<string, string>;
+	/** Renderer metadata replacing the target object type's own. `metadata` only. */
+	metadata?: Record<string, unknown>;
 }
 
 export interface DecorationPack {
@@ -174,7 +183,7 @@ const packSchema = {
 				type: 'object',
 				properties: {
 					_id: { type: 'string', minLength: 1 },
-					type: { enum: [ 'floorLandscape', 'wallLandscape', 'landscape', 'wallGraffiti', 'creep', 'object' ] },
+					type: { enum: [ 'floorLandscape', 'wallLandscape', 'landscape', 'wallGraffiti', 'creep', 'object', 'metadata' ] },
 					name: { type: 'string', minLength: 1 },
 					theme: { type: 'string', minLength: 1 },
 					rarity: { type: 'integer', minimum: 1, maximum: 5 },
@@ -219,6 +228,9 @@ const packSchema = {
 					tiling: { type: 'boolean' },
 					tileScale: { type: 'number' },
 					objectType: { type: 'string' },
+					resources: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
+					// Renderer metadata is the renderer's own vocabulary; there is nothing here to check.
+					metadata: { type: 'object' },
 				},
 				required: [ '_id', 'type', 'name', 'theme', 'props' ],
 				additionalProperties: false,
@@ -293,6 +305,9 @@ async function loadPack({ body, directory }: PackSource) {
 		return `${assetUrlPrefix}/${key}`;
 	};
 
+	const resolveResources = async (resources: Record<string, string>) => Object.fromEntries(
+		await Fn.mapAwait(Object.entries(resources), async ([ alias, url ]) => [ alias, await resolveAsset(url) ] as const));
+
 	const resolvePreview = async (preview: DecorationPreview): Promise<DecorationPreview> => ({
 		...preview.original !== undefined && { original: await resolveAsset(preview.original) },
 		...preview['128x128'] !== undefined && { '128x128': await resolveAsset(preview['128x128']) },
@@ -306,9 +321,6 @@ async function loadPack({ body, directory }: PackSource) {
 					throw new Error(`Decoration '${definition._id}' has a graphic referencing unknown property '${reference}'`);
 				}
 			}
-		}
-		if (definition.type === 'object' && definition.objectType === undefined) {
-			throw new Error(`Decoration '${definition._id}' is an object overlay but names no 'objectType'`);
 		}
 		// The client and the generated previews both read these straight out as colours, so the
 		// format is checked here rather than wherever one of them trips over it.
@@ -336,15 +348,18 @@ async function loadPack({ body, directory }: PackSource) {
 			return { original: url, '128x128': url, '256x256': url };
 		}();
 
-		return {
+		// Completed once every url is public, so the fallback foreground sits beside the resolved ones
+		// rather than being resolved along with them — it belongs to no pack.
+		return completeDefinition({
 			...definition,
 			...definition.foregroundUrl !== undefined && { foregroundUrl: await resolveAsset(definition.foregroundUrl) },
 			...definition.floorForegroundUrl !== undefined && { floorForegroundUrl: await resolveAsset(definition.floorForegroundUrl) },
+			...definition.resources !== undefined && { resources: await resolveResources(definition.resources) },
 			...preview !== undefined && { preview },
 			...definition.graphics !== undefined && {
 				graphics: await Fn.mapAwait(definition.graphics, async graphic => ({ ...graphic, url: await resolveAsset(graphic.url) })),
 			},
-		};
+		}, key => `${assetUrlPrefix}/${key}`);
 	});
 
 	return { name: pack.name, themes: pack.themes, definitions, assets };
@@ -353,7 +368,11 @@ async function loadPack({ body, directory }: PackSource) {
 export async function loadCatalog(sources: Iterable<PackSource>): Promise<Catalog> {
 	const definitions = new Map<string, DecorationDefinition>();
 	const themes = new Map<string, DecorationTheme>();
-	const assets = new Map<string, DecorationAsset>();
+	// The fallback foregrounds belong to the catalog rather than to a pack, so they are registered
+	// here and unconditionally: a hundred bytes each, and every landscape without artwork of its own
+	// points at one.
+	const assets = new Map<string, DecorationAsset>(
+		washes.map(({ key, body }) => [ key, { kind: 'generated', body } ]));
 	const packNames = new Set<string>();
 
 	for (const source of sources) {

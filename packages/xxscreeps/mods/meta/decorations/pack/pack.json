@@ -36,6 +36,7 @@
 				"strokeColor": { "type": "color", "label": "Wall border", "default": "#2b2b2b" },
 				"strokeBrightness": { "type": "range", "label": "Border brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
 				"strokeWidth": { "type": "range", "label": "Border width", "min": 0, "max": 60, "step": 1, "default": 10 },
+				"strokeLighting": { "type": "range", "label": "Border glow", "min": 0, "max": 1, "step": 0.01, "default": 0 },
 				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
 			}
 		},
@@ -77,6 +78,7 @@
 				"strokeColor": { "type": "color", "label": "Wall border", "default": "#ff4fd8" },
 				"strokeBrightness": { "type": "range", "label": "Border brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
 				"strokeWidth": { "type": "range", "label": "Border width", "min": 0, "max": 60, "step": 1, "default": 14 },
+				"strokeLighting": { "type": "range", "label": "Border glow", "min": 0, "max": 1, "step": 0.01, "default": 0 },
 				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
 			}
 		}

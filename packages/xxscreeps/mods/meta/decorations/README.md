@@ -37,7 +37,8 @@ my-pack/
 ```
 
 - `type` is one of `floorLandscape`, `wallLandscape`, `landscape` (both at once), `wallGraffiti`,
-  `creep` or `object`.
+  `creep`, `object` (graphics drawn over a kind of game object) or `metadata` (a replacement for how
+  that kind is drawn, as `objectType` + `resources` + `metadata`).
 - `props` describes what a player may edit, and seeds the values when a decoration is placed. The
   names are the ones the client reads: `floorBackgroundColor`, `swampColor`, `roadsColor`,
   `backgroundColor`, `strokeColor`, `strokeWidth`, … A `world` property controls whether the
@@ -62,6 +63,43 @@ my-pack/
 Anything wrong with a pack — an unknown type, a missing asset, a dangling theme or property
 reference, a duplicate id, a colour property seeded with something that is not `#rrggbb` — fails the
 server at startup rather than handing the client something it cannot render.
+
+## What the renderer requires
+
+The client's renderer reads some of this without checking that it is there. A pack that leaves one of
+those out does not draw a plainer room — it throws inside the room view, and the room stays blank for
+everyone who can see it. So [renderer.ts](./renderer.ts) holds what each type owes, and a pack that
+does not deliver fails the server at startup:
+
+| type | definition | properties |
+| --- | --- | --- |
+| `floorLandscape` | — | `floorBackgroundColor`, `roadsColor` |
+| `wallLandscape` | — | `backgroundColor`, `strokeColor` |
+| `landscape` | — | all four of the above |
+| `wallGraffiti`, `creep`, `object` | `graphics` | `creep` also needs `nameFilter` |
+| `object`, `metadata` | `objectType` | — |
+| `metadata` | `resources`, `metadata` | — |
+
+Every one of those properties must seed a `default`, since the renderer reads it out of *every*
+placement rather than out of the definition.
+
+Landscapes also carry a foreground layer — an overlay texture stretched across the floor
+(`floorForegroundUrl`) or the walls (`foregroundUrl`), tinted by `…ForegroundColor`,
+`…ForegroundBrightness` and `…ForegroundAlpha`. Declare one and the pack owns it, properties
+included. Declare none and the catalog stands in with a flat white square at alpha zero, so a
+colour-only pack still hands the renderer something to draw and looks exactly as it did before.
+
+The two halves must never point at the same url, which is why the stand-in is two identical squares
+rather than one. The room view draws the floor foreground in `processors/terrain.js` and the wall
+foreground in `decorations.js`, and pixi hands both the same `Texture` when the urls match.
+`decorations.js` destroys the textures it drew on every decoration update while the terrain goes on
+drawing the floor from the one it already holds — so a `landscape`, which covers both halves, takes
+the room view down with it the first time anything in the room changes.
+
+Beyond that the renderer reads plenty it survives without: `swampColor`, `swampStrokeColor`,
+`swampStrokeWidth`, `roadsBrightness`, `floorBackgroundBrightness`, `backgroundBrightness`,
+`strokeBrightness`, `strokeWidth`, `strokeLighting`. Those merely render wrong when they are missing,
+so they are the pack's business rather than an invariant — but a landscape wants all of them.
 
 ## Storage
 
@@ -91,12 +129,16 @@ without it, listing an inventory would ask after a placement for every definitio
   length, unknown properties rejected. An invalid value is an error, never a silent default. Omitted
   properties fall back to the definition's seed, so a stored placement is always complete.
 - Collisions are checked per user against whichever index the placement lands in: `landscape` blocks
-  `floorLandscape` and `wallLandscape` in the same room, `object` only argues with another `object`
-  decorating the same `objectType`, `wallGraffiti` stacks freely.
+  `floorLandscape` and `wallLandscape` in the same room, `object` and `metadata` only argue with
+  their own kind decorating the same `objectType`, `wallGraffiti` stacks freely.
 - `creep` decorations name no room — they follow their owner and so appear in every one — and are
   indexed under `decorations/global`, which is also where they compete with each other. The world map
   does not draw them: there is no room to draw them in.
 - Activating an already-placed item moves it. The client depends on this when repositioning.
+- A placement goes over the wire flat: the item's `_id`, its target and the property values in one
+  bag. `_id` has to be *inside* it, not beside it — the room view flattens the bag into the object it
+  renders and then matches socket updates against its `_id`. Hand it out only next to the bag and
+  every update appends the decoration again instead of recognising the copy it already has.
 
 Activate and deactivate publish on a channel per room, plus one shared channel for the creep
 decorations. An open room socket listens to both and re-reads only when one of them fires, so an idle

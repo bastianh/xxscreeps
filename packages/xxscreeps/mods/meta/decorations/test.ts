@@ -72,8 +72,22 @@ const landscape = {
 	type: 'floorLandscape' as const,
 	name: 'Test Floor',
 	theme: theme._id,
-	props: { floorBackgroundColor: { type: 'color' as const, default: '#123456' } },
+	// Both colours are ones the renderer dereferences, so a floor landscape may not omit either.
+	props: {
+		floorBackgroundColor: { type: 'color' as const, default: '#123456' },
+		roadsColor: { type: 'color' as const, default: '#654321' },
+	},
 };
+
+/** What a pack owes the renderer once it names artwork of its own for the floor foreground. */
+const floorForeground = {
+	floorForegroundColor: { type: 'color' as const, default: '#ffffff' },
+	floorForegroundBrightness: { type: 'range' as const, default: 1 },
+	floorForegroundAlpha: { type: 'range' as const, default: 0 },
+};
+
+const withForeground = (url: string) =>
+	({ ...landscape, floorForegroundUrl: url, props: { ...landscape.props, ...floorForeground } });
 
 describe('mods/meta/decorations', () => {
 	describe('catalog', () => {
@@ -102,8 +116,57 @@ describe('mods/meta/decorations', () => {
 			await assert.rejects(loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, type: 'object' } ],
-			}) ]), /names no 'objectType'/);
+				decorations: [ { ...landscape, type: 'object', graphics: [ { url: 'https://example.com/a.png' } ] } ],
+			}) ]), /declares no 'objectType'/);
+		});
+
+		test('a type drawn from its graphics may not omit them', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, type: 'wallGraffiti' } ],
+			}) ]), /declares no 'graphics'/);
+		});
+
+		test('a property the renderer dereferences may not be missing', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, props: { floorBackgroundColor: { type: 'color', default: '#123456' } } } ],
+			}) ]), /declares no 'roadsColor' property/);
+		});
+
+		test('a property the renderer dereferences may not go unseeded', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, props: { ...landscape.props, roadsColor: { type: 'color' } } } ],
+			}) ]), /seeds no default for 'roadsColor'/);
+		});
+
+		test('a renderer override resolves its resources like any other asset', async () => {
+			await using directory = await withAssetFile('art/controller.svg', '<svg xmlns="http://www.w3.org/2000/svg" />');
+			const loaded = await loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ {
+					...landscape,
+					type: 'metadata',
+					objectType: 'controller',
+					resources: { controller: 'art/controller.svg' },
+					metadata: { actions: [] },
+				} ],
+			}, directory.url) ]);
+			assert.strictEqual(
+				loaded.definitions.get('test-floor')?.resources?.controller, 'assets/decorations/test/art/controller.svg');
+		});
+
+		test('a renderer override without the metadata to install is fatal', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, type: 'metadata', objectType: 'controller', resources: {} } ],
+			}) ]), /declares no 'metadata'/);
 		});
 
 		test('a malformed pack is fatal', async () => {
@@ -124,7 +187,7 @@ describe('mods/meta/decorations', () => {
 		test('assets are checked and rewritten to their public url', async () => {
 			await using directory = await withAssetFile('art/floor.svg', '<svg xmlns="http://www.w3.org/2000/svg" />');
 			const loaded = await loadCatalog([ source(
-				{ name: 'test', themes: [ theme ], decorations: [ { ...landscape, floorForegroundUrl: 'art/floor.svg' } ] },
+				{ name: 'test', themes: [ theme ], decorations: [ withForeground('art/floor.svg') ] },
 				directory.url,
 			) ]);
 			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, 'assets/decorations/test/art/floor.svg');
@@ -135,7 +198,7 @@ describe('mods/meta/decorations', () => {
 			const loaded = await loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, floorForegroundUrl: 'https://example.com/floor.png' } ],
+				decorations: [ withForeground('https://example.com/floor.png') ],
 			}) ]);
 			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, 'https://example.com/floor.png');
 			assert.ok(![ ...loaded.assets.values() ].some(asset => asset.kind === 'file'));
@@ -145,7 +208,7 @@ describe('mods/meta/decorations', () => {
 			await assert.rejects(loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, floorForegroundUrl: 'art/floor.svg' } ],
+				decorations: [ withForeground('art/floor.svg') ],
 			}) ]), /does not exist/);
 		});
 
@@ -153,7 +216,7 @@ describe('mods/meta/decorations', () => {
 			await assert.rejects(loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, floorForegroundUrl: '../floor.svg' } ],
+				decorations: [ withForeground('../floor.svg') ],
 			}) ]), /escapes the pack directory/);
 		});
 
@@ -161,7 +224,7 @@ describe('mods/meta/decorations', () => {
 			await assert.rejects(loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, floorForegroundUrl: 'art/floor.txt' } ],
+				decorations: [ withForeground('art/floor.txt') ],
 			}) ]), /unsupported file type/);
 		});
 
@@ -204,26 +267,88 @@ describe('mods/meta/decorations', () => {
 			const loaded = await loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, type: 'wallGraffiti' } ],
+				decorations: [ { ...landscape, type: 'wallGraffiti', graphics: [ { url: 'https://example.com/a.png' } ] } ],
 			}) ]);
 			assert.strictEqual(loaded.definitions.get('test-floor')?.preview, undefined);
-			assert.strictEqual(loaded.assets.size, 0);
+			assert.ok(!loaded.assets.has('_preview/test/test-floor.svg'));
 		});
 
-		test('a landscape without the colours to draw gets none', async () => {
+		test('a landscape whose colours are not colours gets none', async () => {
 			const loaded = await loadCatalog([ source({
 				name: 'test',
 				themes: [ theme ],
-				decorations: [ { ...landscape, props: {} } ],
+				decorations: [ { ...landscape, props: { ...landscape.props, floorBackgroundColor: { type: 'display', default: 'nope' } } } ],
 			}) ]);
 			assert.strictEqual(loaded.definitions.get('test-floor')?.preview, undefined);
-			assert.strictEqual(loaded.assets.size, 0);
+			assert.ok(!loaded.assets.has('_preview/test/test-floor.svg'));
 		});
 
 		test('every landscape in the bundled pack has a preview', () => {
 			for (const definition of catalog.definitions.values()) {
 				if ([ 'floorLandscape', 'wallLandscape', 'landscape' ].includes(definition.type)) {
 					assert.ok(definition.preview?.['128x128'] !== undefined, `'${definition._id}' has no preview`);
+				}
+			}
+		});
+	});
+
+	describe('foregrounds', () => {
+		test('a landscape without artwork gets one it can draw without showing anything', async () => {
+			const loaded = await loadCatalog([ source({ name: 'test', themes: [ theme ], decorations: [ landscape ] }) ]);
+			const definition = loaded.definitions.get('test-floor');
+			assert.strictEqual(definition?.floorForegroundUrl, 'assets/decorations/_texture/floor-wash.svg');
+			assert.strictEqual(loaded.assets.get('_texture/floor-wash.svg')?.kind, 'generated');
+			// Tinted white and faded out, so the room looks exactly as it did without a layer at all.
+			assert.strictEqual(definition.props.floorForegroundColor?.default, '#ffffff');
+			// And it is not a knob the pack chose, so the editor does not offer it.
+			assert.deepStrictEqual(definition.props.floorForegroundAlpha, {
+				type: 'range', readonly: true, min: 0, max: 1, step: 0.01, default: 0,
+			});
+		});
+
+		test('a pack naming its own artwork owns the properties tinting it', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...landscape, floorForegroundUrl: 'https://example.com/floor.png' } ],
+			}) ]), /declares no 'floorForegroundColor' property/);
+		});
+
+		// Two urls rather than one shared: the room view draws the floor foreground and the wall
+		// foreground from two separate places, and pixi hands both the same texture when the urls
+		// match — which the wall half then destroys out from under the floor half.
+		test('a room landscape gets both halves, each with its own texture', async () => {
+			const loaded = await loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ {
+					...landscape,
+					type: 'landscape',
+					props: {
+						...landscape.props,
+						backgroundColor: { type: 'color', default: '#111111' },
+						strokeColor: { type: 'color', default: '#222222' },
+					},
+				} ],
+			}) ]);
+			const definition = loaded.definitions.get('test-floor');
+			assert.strictEqual(definition?.floorForegroundUrl, 'assets/decorations/_texture/floor-wash.svg');
+			assert.strictEqual(definition.foregroundUrl, 'assets/decorations/_texture/wall-wash.svg');
+		});
+
+		test('every landscape in the bundled pack hands the renderer a foreground', () => {
+			for (const definition of catalog.definitions.values()) {
+				if ([ 'floorLandscape', 'landscape' ].includes(definition.type)) {
+					assert.ok(definition.floorForegroundUrl !== undefined, `'${definition._id}' draws no floor foreground`);
+					assert.ok(definition.props.floorForegroundColor?.default !== undefined, `'${definition._id}' tints nothing`);
+				}
+				if ([ 'wallLandscape', 'landscape' ].includes(definition.type)) {
+					assert.ok(definition.foregroundUrl !== undefined, `'${definition._id}' draws no wall foreground`);
+					assert.ok(definition.props.foregroundColor?.default !== undefined, `'${definition._id}' tints nothing`);
+				}
+				if (definition.type === 'landscape') {
+					assert.notStrictEqual(definition.floorForegroundUrl, definition.foregroundUrl,
+						`'${definition._id}' draws both foregrounds from one texture`);
 				}
 			}
 		});
@@ -304,8 +429,11 @@ describe('mods/meta/decorations', () => {
 			const sent = { shard, room: roomName, world: false, floorBackgroundColor: '#abcdef' };
 			const placement = parsePlacement(floor, sent);
 			assert.ok(!('error' in placement));
-			// Flat in, flat out: the target sits next to the property values, never wrapping them.
-			const wire = placementToWire(placement);
+			// Flat in, flat out: the id and the target sit next to the property values, never wrapping
+			// them. The room view flattens this bag and matches socket updates against its `_id`, so the
+			// id has to be inside it.
+			const wire = placementToWire('item-1', placement);
+			assert.strictEqual(wire._id, 'item-1');
 			assert.strictEqual(wire.shard, shard);
 			assert.strictEqual(wire.room, roomName);
 			assert.strictEqual(wire.world, false);
@@ -328,6 +456,14 @@ describe('mods/meta/decorations', () => {
 			assert.ok(conflicts(room, wall));
 			assert.ok(!conflicts(floor, wall));
 			assert.ok(conflicts(floor, floor));
+		});
+
+		test('renderer overrides only argue over the same kind of object', () => {
+			const controller = { ...floor, _id: 'test-controller', type: 'metadata' as const, objectType: 'controller' };
+			const spawn = { ...controller, _id: 'test-spawn', objectType: 'spawn' };
+			assert.ok(conflicts(controller, { ...controller, _id: 'test-other' }));
+			assert.ok(!conflicts(controller, spawn));
+			assert.ok(!conflicts(controller, floor));
 		});
 	});
 

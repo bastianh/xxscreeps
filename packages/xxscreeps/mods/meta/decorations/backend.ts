@@ -34,7 +34,7 @@ hooks.register('route', {
 				...item.createdAt !== undefined && { createdAt: new Date(item.createdAt).toISOString() },
 				...item.activatedAt !== undefined && { activatedAt: new Date(item.activatedAt).toISOString() },
 				// `null` is how the client spells "owned, not placed".
-				active: item.active === undefined ? null : placementToWire(item.active),
+				active: item.active === undefined ? null : placementToWire(item.id, item.active),
 				decoration: toClientDefinition(item.definition),
 			})),
 		};
@@ -156,7 +156,7 @@ hooks.register('route', {
 const toClientItem = (item: PlacedDecoration) => ({
 	_id: item.id,
 	user: item.userId,
-	active: placementToWire(item.active),
+	active: placementToWire(item.id, item.active),
 	decoration: toClientDefinition(item.definition),
 });
 
@@ -232,7 +232,7 @@ hooks.register('mapStats', async (context, { rooms, response, userIds }) => {
 			// The client looks the definition up in the dictionary below rather than inline, so the
 			// same decoration placed in fifty rooms is described once.
 			decorations[item.definition._id] = mapDecoration(item.definition);
-			return { _id: item.id, user: item.userId, decoration: item.definition._id, active: placementToWire(item.active) };
+			return { _id: item.id, user: item.userId, decoration: item.definition._id, active: placementToWire(item.id, item.active) };
 		});
 	});
 	if (Object.keys(decorations).length > 0) {

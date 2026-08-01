@@ -80,7 +80,9 @@ function parseProp(name: string, prop: DecorationProp, value: unknown): ParsedPr
  * a complete set and later readers never have to consult the defaults again.
  */
 export function parsePlacement(definition: DecorationDefinition, active: Record<string, unknown>): Placement | PlacementError {
-	const { shard, room, ...rest } = active;
+	// `_id` rides along in the wire shape and comes back with an edited placement; it names the item
+	// the request already identifies, so it is dropped here rather than checked against the pack.
+	const { _id, shard, room, ...rest } = active;
 	const props: Record<string, PropValue> = {};
 	for (const [ name, value ] of Object.entries(rest)) {
 		const prop = definition.props[name];
@@ -111,14 +113,20 @@ export function parsePlacement(definition: DecorationDefinition, active: Record<
 export const isOnWorldMap = (placement: Placement) => placement.props.world === true;
 
 /**
- * The flat shape the client exchanges — the target sits alongside the property values rather than
- * beside them, which is the same shape {@link parsePlacement} reads. A pack property named `shard`
- * or `room` loses to the target here; storage keeps both apart, so nothing is actually dropped.
+ * The flat shape the client exchanges — the item id and the target sit alongside the property values
+ * rather than beside them, which is the same shape {@link parsePlacement} reads. A pack property
+ * named `_id`, `shard` or `room` loses to them here; storage keeps them apart, so nothing is
+ * actually dropped.
+ *
+ * `_id` has to travel *inside* this bag, not next to it: the room view flattens a placement into one
+ * object and later matches socket updates against it by `_id`. Without one every update appends the
+ * decoration again instead of recognising the copy it already has.
  */
-export const placementToWire = (placement: Placement): Record<string, PropValue> => ({
+export const placementToWire = (id: string, placement: Placement): Record<string, PropValue> => ({
 	...placement.props,
 	...placement.shard !== undefined && { shard: placement.shard },
 	...placement.room !== undefined && { room: placement.room },
+	_id: id,
 });
 
 /** Property values share the placement's hash with its target, so they carry a prefix of their own. */
@@ -157,6 +165,7 @@ function conflictingTypes(type: DecorationType): readonly DecorationType[] {
 		case 'wallLandscape': return [ 'wallLandscape', 'landscape' ];
 		case 'landscape': return [ 'landscape', 'floorLandscape', 'wallLandscape' ];
 		case 'object': return [ 'object' ];
+		case 'metadata': return [ 'metadata' ];
 		case 'creep': return [ 'creep' ];
 		case 'wallGraffiti': return [];
 	}
@@ -167,6 +176,6 @@ export function conflicts(left: DecorationDefinition, right: DecorationDefinitio
 	if (!conflictingTypes(left.type).includes(right.type)) {
 		return false;
 	}
-	// Two object overlays only argue when they decorate the same kind of structure.
-	return left.type === 'object' ? left.objectType === right.objectType : true;
+	// Overlays and renderer overrides only argue when they decorate the same kind of object.
+	return left.type === 'object' || left.type === 'metadata' ? left.objectType === right.objectType : true;
 }
