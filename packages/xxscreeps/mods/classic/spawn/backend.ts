@@ -13,6 +13,7 @@ import { renderStore } from 'xxscreeps/mods/classic/resource/backend.js';
 import { saveUserFlagBlobForNextTick } from 'xxscreeps/mods/meta/flag/model.js';
 import * as C from 'xxscreeps:mods/constants';
 import { StructureExtension } from './extension.js';
+import { getWorldStatus } from './model.js';
 import * as Spawn from './spawn.js';
 
 bindRenderer(StructureExtension, (extension, next) => ({
@@ -181,6 +182,18 @@ hooks.register('route', {
 		await context.shard.data.hSet(User.infoKey(userId), 'lastSpawnTime', Date.now());
 		return { ok: 1 };
 	}),
+});
+
+hooks.register('route', {
+	path: '/api/user/world-status',
+
+	async execute(context) {
+		const { userId } = context.state;
+		if (userId == null) {
+			return { ok: 1, status: 'normal' };
+		}
+		return { ok: 1, status: await getWorldStatus(context.shard, userId) };
+	},
 });
 
 hooks.register('route', {

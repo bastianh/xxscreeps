@@ -6,6 +6,7 @@ import { Structure, lookForStructures } from 'xxscreeps/mods/classic/structure/s
 import { assert, describe, simulate, test } from 'xxscreeps/test/index.js';
 import * as C from 'xxscreeps:mods/constants';
 import { create as createExtension } from './extension.js';
+import { getWorldStatus } from './model.js';
 import { StructureSpawn, create } from './spawn.js';
 
 describe('mods/classic/spawn', () => {
@@ -438,6 +439,37 @@ describe('mods/classic/spawn', () => {
 				assert.strictEqual(ext?.isActive(), false);
 				assert.strictEqual(Game.creeps.worker?.withdraw(ext, C.RESOURCE_ENERGY, 1), C.OK);
 			});
+		}));
+	});
+
+	describe('world status', () => {
+		const sim = simulate({
+			W1N1: room => {
+				room['#insertObject'](create(new RoomPosition(25, 25, 'W1N1'), '100', 'Spawn1'));
+				room['#insertObject'](create(new RoomPosition(27, 25, 'W1N1'), '100', 'Spawn2'));
+				room['#level'] = 7;
+				room['#user'] = room.controller!['#user'] = '100';
+			},
+		});
+
+		test('a player without anything in the world starts from scratch', () => sim(async ({ shard }) => {
+			assert.strictEqual(await getWorldStatus(shard, '101'), 'empty');
+		}));
+
+		test('losing the last spawn ends the game', () => sim(async ({ player, shard, tick }) => {
+			await tick();
+			assert.strictEqual(await getWorldStatus(shard, '100'), 'normal');
+			await player('100', Game => {
+				assert.strictEqual(Game.spawns.Spawn1!.destroy(), C.OK);
+			});
+			await tick();
+			// The controller is still theirs, but a single remaining spawn keeps them in the game
+			assert.strictEqual(await getWorldStatus(shard, '100'), 'normal');
+			await player('100', Game => {
+				assert.strictEqual(Game.spawns.Spawn2!.destroy(), C.OK);
+			});
+			await tick();
+			assert.strictEqual(await getWorldStatus(shard, '100'), 'lost');
 		}));
 	});
 

@@ -14,6 +14,7 @@ import { initializeIntentConstraints } from 'xxscreeps/engine/processor/index.js
 import { acquireIntentsForRoom, activeRoomsKey, begetRoomProcessQueue, finalizeExtraRoomsSetKey, processRoomsSetKey, updateUserRoomRelationships, userToIntentRoomsSetKey, userToVisibleRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
 import { RoomProcessor } from 'xxscreeps/engine/processor/room.js';
 import { runShardTickProcessors } from 'xxscreeps/engine/processor/shard.js';
+import { hooks as processorHooks } from 'xxscreeps/engine/processor/symbols.js';
 import { PlayerInstance, acquireRunnerContext, makeTickPayloadForTesting } from 'xxscreeps/engine/runner/instance.js';
 import { getConsoleChannel } from 'xxscreeps/engine/runner/model.js';
 import * as Id from 'xxscreeps/engine/schema/id.js';
@@ -33,6 +34,8 @@ import 'xxscreeps:mods/processor';
 
 initializeGameEnvironment();
 initializeIntentConstraints();
+
+const refreshRoom = processorHooks.makeMapped('refreshRoom');
 
 // TODO: Something better here.
 stdoutTransport[Symbol.dispose]();
@@ -122,6 +125,10 @@ export function simulate(
 			await Promise.all([
 				shard.saveRoom(room.name, shard.time, room),
 				updateUserRoomRelationships(shard, room, previousUsers),
+				// Mods keep their own per-user indices, like the set of rooms a player controls. The
+				// processor worker seeds those from the room contents in its `initialize` step; do the
+				// same here so the indices reflect the rooms this simulation starts with.
+				...refreshRoom(shard, room),
 				// The main service boots by processing every room once, which seeds NPC-driven rooms
 				// into the active set. `updateUserRoomRelationships` only adds rooms via their (non-NPC)
 				// players, so mirror the boot here: a room with an active NPC gets a first processing
