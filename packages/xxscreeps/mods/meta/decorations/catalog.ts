@@ -315,13 +315,6 @@ async function loadPack({ body, directory }: PackSource) {
 	});
 
 	const definitions = await Fn.mapAwait(pack.decorations, async (definition): Promise<DecorationDefinition> => {
-		for (const graphic of definition.graphics ?? []) {
-			for (const reference of [ graphic.color, graphic.alpha, graphic.visible ]) {
-				if (reference !== undefined && definition.props[reference] === undefined) {
-					throw new Error(`Decoration '${definition._id}' has a graphic referencing unknown property '${reference}'`);
-				}
-			}
-		}
 		// The client and the generated previews both read these straight out as colours, so the
 		// format is checked here rather than wherever one of them trips over it.
 		for (const [ name, prop ] of Object.entries(definition.props)) {

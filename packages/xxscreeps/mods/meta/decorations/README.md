@@ -44,7 +44,8 @@ my-pack/
   `backgroundColor`, `strokeColor`, `strokeWidth`, … A `world` property controls whether the
   decoration also shows on the world map.
 - `graphics[]` entries reference properties by *name*: `{ "url": "art/x.png", "color": "myColor" }`
-  tints the image with whatever the player picked for `myColor`.
+  tints the image with whatever the player picked for `myColor`. Referenced properties have to seed a
+  default — see below.
 - `layout` holds the placement constraints (`proportional`, `minWidth`, `maxWidth`, `minHeight`,
   `maxHeight`).
 - Asset references are either external urls (`https://…`, `data:…`, `/…`) or paths inside the pack.
@@ -76,12 +77,23 @@ does not deliver fails the server at startup:
 | `floorLandscape` | — | `floorBackgroundColor`, `roadsColor` |
 | `wallLandscape` | — | `backgroundColor`, `strokeColor` |
 | `landscape` | — | all four of the above |
-| `wallGraffiti`, `creep`, `object` | `graphics` | `creep` also needs `nameFilter` |
-| `object`, `metadata` | `objectType` | — |
-| `metadata` | `resources`, `metadata` | — |
+| `wallGraffiti` | `graphics` | `width`, `height`, `x`, `y`, `alpha` |
+| `creep` | `graphics` | `width`, `height`, `nameFilter` |
+| `object` | `graphics`, `objectType` | `width`, `height` |
+| `metadata` | `objectType`, `resources`, `metadata` | — |
 
 Every one of those properties must seed a `default`, since the renderer reads it out of *every*
 placement rather than out of the definition.
+
+`width` and `height` are on the list because the renderer assigns them to the sprite unchecked, and a
+sprite sized `NaN` is one nobody can see. `wallGraffiti` needs `x` and `y` as well — it is the only
+type the player positions, and the client's position editor writes back only properties the
+definition declares.
+
+On top of the table, a graphic's `color`, `alpha` and `visible` name properties rather than carrying
+values, and the renderer looks those up on the placement — so each of them has to exist *and* seed a
+default. A graphic naming a `color` also needs a `brightness` property: tinting is one computation
+over both, and half of it yields no colour at all.
 
 Landscapes also carry a foreground layer — an overlay texture stretched across the floor
 (`floorForegroundUrl`) or the walls (`foregroundUrl`), tinted by `…ForegroundColor`,
@@ -95,6 +107,13 @@ foreground in `decorations.js`, and pixi hands both the same `Texture` when the 
 `decorations.js` destroys the textures it drew on every decoration update while the terrain goes on
 drawing the floor from the one it already holds — so a `landscape`, which covers both halves, takes
 the room view down with it the first time anything in the room changes.
+
+One property is a closed set rather than a free value: `animation`, which the renderer uses to index
+its table of keyframes. Only `slow`, `fast`, `blink`, `neon`, `flash` and the empty string are
+accepted, both as a definition's seed and in an activation request. It has to be checked here because
+the client only offers the closed list when the property is a `string` labelled exactly `Animation` —
+spelled any other way the player gets a free text field, and whatever they type would reach the
+renderer.
 
 Beyond that the renderer reads plenty it survives without: `swampColor`, `swampStrokeColor`,
 `swampStrokeWidth`, `roadsBrightness`, `floorBackgroundBrightness`, `backgroundBrightness`,

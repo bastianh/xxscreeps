@@ -79,6 +79,22 @@ const landscape = {
 	},
 };
 
+/** An overlay carrying its own artwork, sized and positioned the way the renderer reads it. */
+const graffiti = {
+	_id: 'test-graffiti',
+	type: 'wallGraffiti' as const,
+	name: 'Test Graffiti',
+	theme: theme._id,
+	graphics: [ { url: 'https://example.com/a.png' } ],
+	props: {
+		x: { type: 'range' as const, default: 10 },
+		y: { type: 'range' as const, default: 10 },
+		width: { type: 'range' as const, default: 5 },
+		height: { type: 'range' as const, default: 5 },
+		alpha: { type: 'range' as const, default: 1 },
+	},
+};
+
 /** What a pack owes the renderer once it names artwork of its own for the floor foreground. */
 const floorForeground = {
 	floorForegroundColor: { type: 'color' as const, default: '#ffffff' },
@@ -110,6 +126,50 @@ describe('mods/meta/decorations', () => {
 				themes: [ theme ],
 				decorations: [ { ...landscape, graphics: [ { url: 'https://example.com/a.png', color: 'nope' } ] } ],
 			}) ]), /unknown property 'nope'/);
+		});
+
+		test('a graphic referencing a property the pack does not seed is fatal', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ {
+					...graffiti,
+					graphics: [ { url: 'https://example.com/a.png', color: 'tint' } ],
+					props: { ...graffiti.props, tint: { type: 'color' }, brightness: { type: 'range', default: 1 } },
+				} ],
+			}) ]), /seeds no default for 'tint'/);
+		});
+
+		test('a graphic naming a colour needs the brightness dimming it', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ {
+					...graffiti,
+					graphics: [ { url: 'https://example.com/a.png', color: 'tint' } ],
+					props: { ...graffiti.props, tint: { type: 'color', default: '#ffffff' } },
+				} ],
+			}) ]), /declares no 'brightness' property/);
+		});
+
+		test('an overlay the renderer cannot size is fatal', async () => {
+			const { width, ...props } = graffiti.props;
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...graffiti, props } ],
+			}) ]), /declares no 'width' property/);
+		});
+
+		test('an animation the renderer has no entry for is fatal', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ {
+					...graffiti,
+					props: { ...graffiti.props, animation: { type: 'string', label: 'Animation', default: 'wiggle' } },
+				} ],
+			}) ]), /seeds 'animation' with 'wiggle'/);
 		});
 
 		test('an object overlay without an object type is fatal', async () => {
@@ -264,13 +324,9 @@ describe('mods/meta/decorations', () => {
 		});
 
 		test('a type carrying its own artwork gets none', async () => {
-			const loaded = await loadCatalog([ source({
-				name: 'test',
-				themes: [ theme ],
-				decorations: [ { ...landscape, type: 'wallGraffiti', graphics: [ { url: 'https://example.com/a.png' } ] } ],
-			}) ]);
-			assert.strictEqual(loaded.definitions.get('test-floor')?.preview, undefined);
-			assert.ok(!loaded.assets.has('_preview/test/test-floor.svg'));
+			const loaded = await loadCatalog([ source({ name: 'test', themes: [ theme ], decorations: [ graffiti ] }) ]);
+			assert.strictEqual(loaded.definitions.get('test-graffiti')?.preview, undefined);
+			assert.ok(!loaded.assets.has('_preview/test/test-graffiti.svg'));
 		});
 
 		test('a landscape whose colours are not colours gets none', async () => {
@@ -410,6 +466,20 @@ describe('mods/meta/decorations', () => {
 			assert.ok('error' in parsePlacement(floor, { shard, room: roomName, floorBackgroundColor: 'red' }));
 			assert.ok('error' in parsePlacement(floor, { shard, room: roomName, floorBackgroundBrightness: 99 }));
 			assert.ok('error' in parsePlacement(floor, { floorBackgroundColor: '#123456' }), 'a room is required');
+		});
+
+		// The client offers a free text field unless the pack labels the property its own way, so a
+		// value the renderer's animation table has no entry for has to lose here rather than there.
+		test('an animation outside the renderer\'s table is rejected', async () => {
+			const loaded = await loadCatalog([ source({
+				name: 'test',
+				themes: [ theme ],
+				decorations: [ { ...graffiti, props: { ...graffiti.props, animation: { type: 'string', default: '' } } } ],
+			}) ]);
+			const definition = loaded.definitions.get('test-graffiti')!;
+			assert.ok('error' in parsePlacement(definition, { shard, room: roomName, animation: 'wiggle' }));
+			assert.ok(!('error' in parsePlacement(definition, { shard, room: roomName, animation: 'neon' })));
+			assert.ok(!('error' in parsePlacement(definition, { shard, room: roomName, animation: '' })), 'none is a value');
 		});
 
 		test('numbers and booleans are accepted in their string spelling', () => {

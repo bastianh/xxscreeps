@@ -1,5 +1,6 @@
 import type { DecorationDefinition, DecorationProp, DecorationType } from './catalog.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
+import { enumeratedProps } from './renderer.js';
 
 // Everything that maps a definition's property schema onto a placement: parsing what the client
 // sends, encoding it for storage, and reading it back. The definition is the authority for a
@@ -92,6 +93,12 @@ export function parsePlacement(definition: DecorationDefinition, active: Record<
 		const parsed = parseProp(name, prop, value);
 		if ('error' in parsed) {
 			return parsed;
+		}
+		// The renderer indexes a table by some of these, so they are closed sets rather than the free
+		// strings the client's editor offers when a pack labels the property its own way.
+		const values = enumeratedProps[name];
+		if (values !== undefined && !values.includes(String(parsed.value))) {
+			return { error: `'${name}' is not one of ${values.map(value => `'${value}'`).join(', ')}` };
 		}
 		props[name] = parsed.value;
 	}

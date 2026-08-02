@@ -57,16 +57,34 @@ interface Contract {
 
 const floorProps = [ 'floorBackgroundColor', 'roadsColor' ];
 const wallProps = [ 'backgroundColor', 'strokeColor' ];
+// How large the sprite is drawn. The renderer assigns these to `width` and `height` without
+// checking, and a sprite sized `NaN` is one nobody can see.
+const spriteProps = [ 'width', 'height' ];
 
 const contracts: Record<DecorationType, Contract> = {
 	floorLandscape: { fields: [], props: floorProps, foregrounds: [ floorForeground ] },
 	wallLandscape: { fields: [], props: wallProps, foregrounds: [ wallForeground ] },
 	landscape: { fields: [], props: [ ...floorProps, ...wallProps ], foregrounds: [ floorForeground, wallForeground ] },
-	wallGraffiti: { fields: [ 'graphics' ], props: [], foregrounds: [] },
-	creep: { fields: [ 'graphics' ], props: [ 'nameFilter' ], foregrounds: [] },
-	object: { fields: [ 'graphics', 'objectType' ], props: [], foregrounds: [] },
+	// Graffiti is the only type the player positions, and the only one whose container alpha comes
+	// straight off the placement.
+	wallGraffiti: { fields: [ 'graphics' ], props: [ ...spriteProps, 'x', 'y', 'alpha' ], foregrounds: [] },
+	creep: { fields: [ 'graphics' ], props: [ ...spriteProps, 'nameFilter' ], foregrounds: [] },
+	object: { fields: [ 'graphics', 'objectType' ], props: spriteProps, foregrounds: [] },
 	metadata: { fields: [ 'objectType', 'resources', 'metadata' ], props: [], foregrounds: [] },
 };
+
+/**
+ * Values the renderer's animation table is keyed by, plus the empty string it reads as "no
+ * animation". `ANIMATIONS[value].map(…)` throws on anything else.
+ *
+ * The client only offers the closed list when the property is a `string` labelled `Animation`;
+ * spelled any other way the player gets a free text field. So the value is checked here, where a
+ * pack cannot spell its way out of it, rather than left to the editor.
+ */
+export const animations: readonly string[] = [ '', 'slow', 'fast', 'blink', 'neon', 'flash' ];
+
+/** Properties the renderer looks up in a table, so a placement may only carry a listed value. */
+export const enumeratedProps: Record<string, readonly string[]> = { animation: animations };
 
 const washBody = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><rect width="16" height="16" fill="#ffffff"/></svg>';
 
@@ -104,6 +122,34 @@ function requireProp(definition: DecorationDefinition, name: string) {
 }
 
 /**
+ * A graphic names the properties tinting it rather than carrying values, and the renderer looks
+ * those up on the placement. `decorations.js` reads the colour without checking that it is there,
+ * so a reference the definition does not seed takes the room view down with it.
+ */
+function requireGraphicProps(definition: DecorationDefinition) {
+	let anyColor = false;
+	for (const graphic of definition.graphics ?? []) {
+		for (const name of [ graphic.color, graphic.alpha, graphic.visible ]) {
+			if (name === undefined) {
+				continue;
+			}
+			const prop = definition.props[name];
+			if (prop === undefined) {
+				throw new Error(`Decoration '${definition._id}' has a graphic referencing unknown property '${name}'`);
+			} else if (prop.default === undefined) {
+				throw new Error(`Decoration '${definition._id}' seeds no default for '${name}', which its graphics are drawn with`);
+			}
+		}
+		anyColor ||= graphic.color !== undefined;
+	}
+	// Tinting is one computation over both: whatever colour the player picked, dimmed by whatever
+	// brightness they picked. A graphic naming the one needs the other.
+	if (anyColor) {
+		requireProp(definition, 'brightness');
+	}
+}
+
+/**
  * A definition with everything the renderer dereferences accounted for: what the pack left out and
  * the catalog can stand in for is filled in, and anything else throws. `assetUrl` names the public
  * url of an asset key; only a landscape without artwork of its own asks it for one.
@@ -117,6 +163,13 @@ export function completeDefinition(definition: DecorationDefinition, assetUrl: (
 	}
 	for (const name of contract.props) {
 		requireProp(definition, name);
+	}
+	requireGraphicProps(definition);
+	for (const [ name, values ] of Object.entries(enumeratedProps)) {
+		const seed = definition.props[name]?.default;
+		if (seed !== undefined && !values.includes(String(seed))) {
+			throw new Error(`Decoration '${definition._id}' seeds '${name}' with '${seed}', which the renderer has no entry for`);
+		}
 	}
 	// A pack that names artwork for a layer owns that layer, tint and all — standing in for half of
 	// it would hide the mistake behind an invisible overlay rather than report it.
