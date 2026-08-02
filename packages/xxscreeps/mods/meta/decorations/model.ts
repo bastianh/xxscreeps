@@ -53,8 +53,12 @@ export interface DecorationUpdate {
 export interface OwnedDecoration {
 	id: string;
 	definition: DecorationDefinition;
-	/** Epoch milliseconds. Absent for the implicit ownership `grantAll` hands out. */
-	createdAt?: number;
+	/**
+	 * Epoch milliseconds the item was granted. Every inventory item carries one, because the client
+	 * sorts by it — the implicit ownership `grantAll` hands out has no moment of acquisition to
+	 * report, so it reports the epoch and the whole catalog ties.
+	 */
+	createdAt: number;
 	/** Where it is placed, or absent while it sits unplaced in the inventory. */
 	active?: Placement;
 	/** Epoch milliseconds it was placed. */
@@ -107,8 +111,9 @@ async function loadOwned(db: Database, userId: string): Promise<OwnedDecoration[
 	if (grantAll()) {
 		// Implicit ownership has no record to carry an id, so the decoration's own id names the item.
 		// That keeps the id stable across restarts, which is what the client needs to place and
-		// remove one.
-		return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition })) ];
+		// remove one. Nor is there a moment it was acquired, so every item reports the epoch and the
+		// catalog ties — a sort by age leaves it in the order the server listed it.
+		return [ ...Fn.map(catalog.definitions.values(), definition => ({ id: definition._id, definition, createdAt: 0 })) ];
 	}
 	const ids = await db.data.sMembers(inventoryKey(userId));
 	const items = await Fn.mapAwait(ids, async (id): Promise<OwnedDecoration | undefined> => {

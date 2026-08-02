@@ -218,7 +218,7 @@ describe('mods/meta/decorations', () => {
 				} ],
 			}, directory.url) ]);
 			assert.strictEqual(
-				loaded.definitions.get('test-floor')?.resources?.controller, 'assets/decorations/test/art/controller.svg');
+				loaded.definitions.get('test-floor')?.resources?.controller, '/assets/decorations/test/art/controller.svg');
 		});
 
 		test('a renderer override without the metadata to install is fatal', async () => {
@@ -250,8 +250,31 @@ describe('mods/meta/decorations', () => {
 				{ name: 'test', themes: [ theme ], decorations: [ withForeground('art/floor.svg') ] },
 				directory.url,
 			) ]);
-			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, 'assets/decorations/test/art/floor.svg');
+			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, '/assets/decorations/test/art/floor.svg');
 			assert.ok(loaded.assets.has('test/art/floor.svg'));
+		});
+
+		// Artwork carried in the pack.json is served from the same url a file beside it would be, so a
+		// decoration cannot tell which of the two it got.
+		test('artwork the pack carries itself is served like a file', async () => {
+			const body = '<svg xmlns="http://www.w3.org/2000/svg" />';
+			const loaded = await loadCatalog([ source({
+				name: 'test',
+				assets: { 'art/floor.svg': body },
+				themes: [ theme ],
+				decorations: [ withForeground('art/floor.svg') ],
+			}) ]);
+			assert.strictEqual(loaded.definitions.get('test-floor')?.floorForegroundUrl, '/assets/decorations/test/art/floor.svg');
+			assert.deepStrictEqual(loaded.assets.get('test/art/floor.svg'), { kind: 'generated', body });
+		});
+
+		test('carrying artwork the asset route cannot serve is fatal', async () => {
+			await assert.rejects(loadCatalog([ source({
+				name: 'test',
+				assets: { 'art/floor.txt': 'nope' },
+				themes: [ theme ],
+				decorations: [ landscape ],
+			}) ]), /unsupported file type/);
 		});
 
 		test('external urls are left alone', async () => {
@@ -300,7 +323,7 @@ describe('mods/meta/decorations', () => {
 	describe('previews', () => {
 		test('a landscape without artwork gets one drawn from its colours', async () => {
 			const loaded = await loadCatalog([ source({ name: 'test', themes: [ theme ], decorations: [ landscape ] }) ]);
-			const url = 'assets/decorations/_preview/test/test-floor.svg';
+			const url = '/assets/decorations/_preview/test/test-floor.svg';
 			assert.deepStrictEqual(loaded.definitions.get('test-floor')?.preview, {
 				original: url, '128x128': url, '256x256': url,
 			});
@@ -318,7 +341,7 @@ describe('mods/meta/decorations', () => {
 				directory.url,
 			) ]);
 			assert.deepStrictEqual(loaded.definitions.get('test-floor')?.preview, {
-				'128x128': 'assets/decorations/test/art/tile.png',
+				'128x128': '/assets/decorations/test/art/tile.png',
 			});
 			assert.ok(!loaded.assets.has('_preview/test/test-floor.svg'));
 		});
@@ -346,13 +369,30 @@ describe('mods/meta/decorations', () => {
 				}
 			}
 		});
+
+		// Nothing is drawn for a type carrying artwork, so the bundled pack owes one, and every url it
+		// hands the client has to be one the asset route will actually answer.
+		test('every overlay in the bundled pack has a preview the route can serve', () => {
+			const served = (url: string) => catalog.assets.has(url.replace('/assets/decorations/', ''));
+			for (const definition of catalog.definitions.values()) {
+				if (![ 'wallGraffiti', 'creep', 'object' ].includes(definition.type)) {
+					continue;
+				}
+				const preview = definition.preview?.['128x128'];
+				assert.ok(preview !== undefined, `'${definition._id}' has no preview`);
+				assert.ok(served(preview), `'${definition._id}' previews from '${preview}', which nothing serves`);
+				for (const graphic of definition.graphics!) {
+					assert.ok(served(graphic.url), `'${definition._id}' draws from '${graphic.url}', which nothing serves`);
+				}
+			}
+		});
 	});
 
 	describe('foregrounds', () => {
 		test('a landscape without artwork gets one it can draw without showing anything', async () => {
 			const loaded = await loadCatalog([ source({ name: 'test', themes: [ theme ], decorations: [ landscape ] }) ]);
 			const definition = loaded.definitions.get('test-floor');
-			assert.strictEqual(definition?.floorForegroundUrl, 'assets/decorations/_texture/floor-wash.svg');
+			assert.strictEqual(definition?.floorForegroundUrl, '/assets/decorations/_texture/floor-wash.svg');
 			assert.strictEqual(loaded.assets.get('_texture/floor-wash.svg')?.kind, 'generated');
 			// Tinted white and faded out, so the room looks exactly as it did without a layer at all.
 			assert.strictEqual(definition.props.floorForegroundColor?.default, '#ffffff');
@@ -388,8 +428,8 @@ describe('mods/meta/decorations', () => {
 				} ],
 			}) ]);
 			const definition = loaded.definitions.get('test-floor');
-			assert.strictEqual(definition?.floorForegroundUrl, 'assets/decorations/_texture/floor-wash.svg');
-			assert.strictEqual(definition.foregroundUrl, 'assets/decorations/_texture/wall-wash.svg');
+			assert.strictEqual(definition?.floorForegroundUrl, '/assets/decorations/_texture/floor-wash.svg');
+			assert.strictEqual(definition.foregroundUrl, '/assets/decorations/_texture/wall-wash.svg');
 		});
 
 		test('every landscape in the bundled pack hands the renderer a foreground', () => {
@@ -427,6 +467,25 @@ describe('mods/meta/decorations', () => {
 			assert.strictEqual(await revoke(db, alice, itemId), true);
 			assert.strictEqual(await revoke(db, alice, itemId), false);
 			assert.deepStrictEqual(await listForUser(db, alice), []);
+		});
+
+		// The client sorts the inventory by age and does not check first, so an item without one takes
+		// the page down. Implicit ownership has no moment to report, so it reports the epoch.
+		test('every owned item carries the moment it was granted', async () => {
+			await using testShard = await instantiateTestShard();
+			const { db } = testShard;
+			{
+				using grantAll = withGrantAll(true);
+				const owned = await listForUser(db, alice);
+				assert.ok(owned.length > 0);
+				assert.ok(owned.every(item => item.createdAt === 0), 'implicit ownership ties on the epoch');
+			}
+			using grantAll = withGrantAll(false);
+			const [ definition ] = catalog.definitions.values();
+			await grant(db, alice, definition!._id);
+			const owned = await listForUser(db, alice);
+			assert.strictEqual(owned.length, 1);
+			assert.ok(owned[0]!.createdAt > 0, 'a stored grant reports when it was made');
 		});
 
 		test('granting something the catalog does not have is an error', async () => {

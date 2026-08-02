@@ -108,6 +108,12 @@ export interface DecorationDefinition {
 export interface DecorationPack {
 	/** Slug identifying the pack; appears in the public url of its assets. */
 	name: string;
+	/**
+	 * Artwork carried in the pack itself rather than shipped beside it, keyed by the path the
+	 * decorations reference. Anything textual — an svg — can be written here instead of put in a
+	 * file, and it is served from the same url a file would be.
+	 */
+	assets?: Record<string, string>;
 	themes: DecorationTheme[];
 	decorations: DecorationDefinition[];
 }
@@ -163,6 +169,7 @@ const packSchema = {
 	type: 'object',
 	properties: {
 		name: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]*$' },
+		assets: { type: 'object', additionalProperties: { type: 'string' } },
 		themes: {
 			type: 'array',
 			items: {
@@ -260,16 +267,17 @@ export function assetContentType(file: string) {
 }
 
 /**
- * Public url prefix of pack assets. Document-relative by default — the client references its own
- * assets the same way, and it is the only form that survives being served under a path prefix, as
- * the steamless client does when it proxies a backend at `/(http://host:21025)/`. A root-relative
- * url would drop that prefix and miss the proxy entirely. The official server sidesteps all of this
- * by handing out absolute s3 urls, which is what `assetBaseUrl` is for when the assets live on
- * another origin.
+ * Public url prefix of pack assets. Rooted at `/`, so it means the same thing whatever route the
+ * client is showing. A document-relative url would not: a client routing through the path resolves
+ * it against wherever it currently stands, and `/room/shard0/W1N1` turns an overlay texture into
+ * `/room/shard0/assets/…`.
+ *
+ * That leaves the deployments where the backend is not at the root of the origin the client is
+ * served from — another origin, or a proxy mounting it under a path prefix, as the steamless client
+ * does with `/(http://host:21025)/`. Those set `assetBaseUrl`, which is prepended verbatim and so
+ * takes a path just as well as an origin.
  */
-const assetUrlPrefix = config.decorations?.assetBaseUrl === undefined
-	? 'assets/decorations'
-	: `${config.decorations.assetBaseUrl}/assets/decorations`;
+const assetUrlPrefix = `${config.decorations?.assetBaseUrl ?? ''}/assets/decorations`;
 
 /** Urls a pack may reference without shipping the file: other origins, and data urls. */
 const isExternalUrl = (value: string) => /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i.test(value);
@@ -282,11 +290,26 @@ async function loadPack({ body, directory }: PackSource) {
 	const pack = raw;
 	const assets = new Map<string, DecorationAsset>();
 
-	// Relative references name a file inside the pack; they are checked here and rewritten to the
-	// url the asset route serves them from.
+	// Every asset a pack carries in `pack.json` rather than beside it, whether a decoration ends up
+	// referencing it or not — a path nobody can serve is a mistake worth reporting at startup.
+	for (const path of Object.keys(pack.assets ?? {})) {
+		if (assetContentType(path) === undefined) {
+			throw new Error(`Asset '${path}' of decoration pack '${pack.name}' has an unsupported file type`);
+		}
+	}
+
+	// Relative references name something inside the pack — carried in `assets`, or a file beside the
+	// `pack.json`. Either way they are checked here and rewritten to the url the asset route serves
+	// them from, so a decoration cannot tell which of the two it got.
 	const resolveAsset = async (value: string) => {
 		if (isExternalUrl(value)) {
 			return value;
+		}
+		const carried = pack.assets?.[value];
+		if (carried !== undefined) {
+			const key = `${pack.name}/${value}`;
+			assets.set(key, { kind: 'generated', body: carried });
+			return `${assetUrlPrefix}/${key}`;
 		}
 		const file = new URL(value, directory);
 		if (!file.href.startsWith(directory.href)) {

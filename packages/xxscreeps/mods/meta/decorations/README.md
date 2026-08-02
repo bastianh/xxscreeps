@@ -48,12 +48,20 @@ my-pack/
   default — see below.
 - `layout` holds the placement constraints (`proportional`, `minWidth`, `maxWidth`, `minHeight`,
   `maxHeight`).
+- `assets` lets a pack carry its artwork in the `pack.json` instead of beside it, keyed by the path
+  the decorations reference: `"assets": { "art/x.svg": "<svg …>…</svg>" }`. It is served from the
+  same url a file would be, so a decoration cannot tell which of the two it got, and anything
+  textual works — the bundled pack draws its overlays this way, because the build ships `.json` and
+  nothing else.
 - Asset references are either external urls (`https://…`, `data:…`, `/…`) or paths inside the pack.
   Pack-local files are checked when the server starts and served from
-  `assets/decorations/<pack>/<path>`. That url is handed to the client relative to the document, not
-  rooted at `/`, because a proxy may serve the client under a path prefix — the steamless client
-  mounts a backend at `/(http://host:21025)/`, and a rooted url would escape it. Set
-  `decorations.assetBaseUrl` when the assets need an absolute url instead.
+  `/assets/decorations/<pack>/<path>`. That url is rooted at `/`, so it means the same thing whatever
+  route the client happens to be showing — a client routing through the path would otherwise resolve
+  a document-relative url against wherever it stands, turning an overlay texture into
+  `/room/shard0/assets/…`. Set `decorations.assetBaseUrl` when the backend is not at the root of the
+  origin the client is served from; it is prepended verbatim, so it takes an origin
+  (`https://screeps.example.com`) or the path a proxy mounts the backend under
+  (`/(http://localhost:21025)` for the steamless client).
 - `preview` is what the client's inventory shows, as `original`, `128x128` and `256x256`. A landscape
   that declares none gets an svg drawn from its own colours, so a colour-only pack needs no image
   files at all. Declaring a `preview` replaces the drawing. Types with artwork of their own —
@@ -138,6 +146,11 @@ to their declared types on read — the definition is the authority in both dire
 The per-user `active` set exists because `grantAll` makes the inventory as large as the catalog;
 without it, listing an inventory would ask after a placement for every definition on the server.
 
+An inventory item always reports a `createdAt`, even the implicit ownership `grantAll` hands out,
+which has no moment of acquisition to report and so reports the epoch. Clients sort the inventory by
+it without checking that it is there — the field is not optional on the official server, because
+there every item is a stored grant. `activatedAt` is genuinely absent until the item is placed.
+
 ## Placement
 
 - The item is owned — including implicitly, under `grantAll`.
@@ -175,7 +188,8 @@ decorations:
   requireRoomOwnership: true
   # Extra packs, as a path to a pack.json or the directory holding one
   packs: [ ./my-pack ]
-  # Only needed when the client is served from another origin than the backend
+  # Only needed when the backend is not at the root of the origin serving the client. An origin of
+  # its own, or the path a proxy mounts it under — e.g. "/(http://localhost:21025)" for steamless
   assetBaseUrl: https://screeps.example.com
 ```
 

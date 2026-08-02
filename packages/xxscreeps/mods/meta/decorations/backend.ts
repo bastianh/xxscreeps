@@ -31,7 +31,7 @@ hooks.register('route', {
 			ok: 1,
 			list: items.map(item => ({
 				_id: item.id,
-				...item.createdAt !== undefined && { createdAt: new Date(item.createdAt).toISOString() },
+				createdAt: new Date(item.createdAt).toISOString(),
 				...item.activatedAt !== undefined && { activatedAt: new Date(item.activatedAt).toISOString() },
 				// `null` is how the client spells "owned, not placed".
 				active: item.active === undefined ? null : placementToWire(item.id, item.active),
@@ -147,6 +147,11 @@ hooks.register('route', {
 		context.set('Cache-Control', 'public');
 		context.set('ETag', asset.etag);
 		context.set('Content-Type', asset.type);
+		// These end up as WebGL textures, and the browser refuses to upload a cross-origin image it
+		// was not allowed to read — pixi asks for one anonymously as soon as the url is not the
+		// client's own origin, which is exactly what `assetBaseUrl` is for. Public files, no
+		// credentials, nothing to scope the permission to.
+		context.set('Access-Control-Allow-Origin', '*');
 		context.body = asset.body;
 		return true;
 	},

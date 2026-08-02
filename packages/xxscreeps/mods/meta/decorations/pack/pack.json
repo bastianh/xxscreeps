@@ -4,6 +4,12 @@
 		{ "_id": "xx-basic", "name": "Basics", "color": "#8f8f8f" },
 		{ "_id": "xx-neon", "name": "Neon", "color": "#ff4fd8" }
 	],
+	"assets": {
+		"art/tag.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><g fill=\"none\" stroke=\"#ffffff\" stroke-linecap=\"round\"><circle cx=\"32\" cy=\"32\" r=\"26\" stroke-width=\"5\"/><path d=\"M22 22 L42 42 M42 22 L22 42\" stroke-width=\"7\"/></g></svg>",
+		"art/tag-preview.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><rect width=\"64\" height=\"64\" rx=\"8\" fill=\"#181818\"/><g fill=\"none\" stroke=\"#dcdcdc\" stroke-linecap=\"round\"><circle cx=\"32\" cy=\"32\" r=\"21\" stroke-width=\"4\"/><path d=\"M24 24 L40 40 M40 24 L24 40\" stroke-width=\"6\"/></g></svg>",
+		"art/orbit.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><circle cx=\"32\" cy=\"32\" r=\"27\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-dasharray=\"12 9\"/></svg>",
+		"art/orbit-preview.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><rect width=\"64\" height=\"64\" rx=\"8\" fill=\"#181818\"/><circle cx=\"32\" cy=\"32\" r=\"21\" fill=\"none\" stroke=\"#dcdcdc\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-dasharray=\"10 8\"/><circle cx=\"32\" cy=\"32\" r=\"8\" fill=\"#2f2f2f\"/></svg>"
+	},
 	"decorations": [
 		{
 			"_id": "xx-floor-plain",
@@ -80,6 +86,60 @@
 				"strokeWidth": { "type": "range", "label": "Border width", "min": 0, "max": 60, "step": 1, "default": 14 },
 				"strokeLighting": { "type": "range", "label": "Border glow", "min": 0, "max": 1, "step": 0.01, "default": 0 },
 				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		},
+		{
+			"_id": "xx-tag",
+			"type": "wallGraffiti",
+			"name": "Tag",
+			"theme": "xx-basic",
+			"rarity": 2,
+			"groupDescription": "A stencil sprayed onto the walls of a room. Drag it where you want it.",
+			"graphics": [ { "url": "art/tag.svg", "color": "color" } ],
+			"preview": {
+				"original": "art/tag-preview.svg",
+				"128x128": "art/tag-preview.svg",
+				"256x256": "art/tag-preview.svg"
+			},
+			"layout": { "proportional": true, "minWidth": 1, "maxWidth": 12, "minHeight": 1, "maxHeight": 12 },
+			"props": {
+				"x": { "type": "range", "label": "Left", "min": 0, "max": 49, "step": 1, "default": 24 },
+				"y": { "type": "range", "label": "Top", "min": 0, "max": 49, "step": 1, "default": 24 },
+				"width": { "type": "range", "label": "Width", "min": 1, "max": 12, "step": 1, "default": 3 },
+				"height": { "type": "range", "label": "Height", "min": 1, "max": 12, "step": 1, "default": 3 },
+				"alpha": { "type": "range", "label": "Opacity", "min": 0, "max": 1, "step": 0.01, "default": 1 },
+				"color": { "type": "color", "label": "Paint", "default": "#dcdcdc" },
+				"brightness": { "type": "range", "label": "Brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"rotation": { "type": "range", "label": "Rotation", "min": 0, "max": 6.28, "step": 0.01, "default": 0 },
+				"flip": { "type": "boolean", "label": "Flip", "default": false },
+				"lighting": { "type": "boolean", "label": "Glow", "default": false },
+				"animation": { "type": "string", "label": "Animation", "default": "" },
+				"world": { "type": "boolean", "label": "Show on the world map", "default": true }
+			}
+		},
+		{
+			"_id": "xx-orbit",
+			"type": "creep",
+			"name": "Orbit",
+			"theme": "xx-basic",
+			"rarity": 2,
+			"groupDescription": "A ring that follows your creeps around. It names no room of its own.",
+			"graphics": [ { "url": "art/orbit.svg", "color": "color" } ],
+			"preview": {
+				"original": "art/orbit-preview.svg",
+				"128x128": "art/orbit-preview.svg",
+				"256x256": "art/orbit-preview.svg"
+			},
+			"props": {
+				"width": { "type": "range", "label": "Width", "min": 20, "max": 200, "step": 1, "default": 90 },
+				"height": { "type": "range", "label": "Height", "min": 20, "max": 200, "step": 1, "default": 90 },
+				"nameFilter": { "type": "string", "label": "Creep names", "default": "" },
+				"exclude": { "type": "boolean", "label": "Skip the names above", "default": false },
+				"color": { "type": "color", "label": "Ring", "default": "#dcdcdc" },
+				"brightness": { "type": "range", "label": "Brightness", "min": 0.2, "max": 1, "step": 0.01, "default": 1 },
+				"syncRotate": { "type": "boolean", "label": "Turn with the creep", "default": false },
+				"lighting": { "type": "boolean", "label": "Glow", "default": false },
+				"animation": { "type": "string", "label": "Animation", "default": "" }
 			}
 		}
 	]

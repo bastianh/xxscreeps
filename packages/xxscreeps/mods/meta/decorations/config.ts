@@ -1,9 +1,9 @@
 export interface DecorationsSettings {
 	/**
-	 * Absolute base url of decoration assets, e.g. "https://screeps.example.com". Only needed when
-	 * the client is served from a different origin than the backend; by default assets are
-	 * referenced relative to the document, which is what lets a proxy serve the client under a path
-	 * prefix.
+	 * Prefix put in front of decoration asset urls, which are otherwise rooted at `/`. Needed when
+	 * the backend does not sit at the root of the origin the client is served from: an origin of its
+	 * own, e.g. "https://screeps.example.com", or the path a proxy mounts it under, e.g.
+	 * "/(http://localhost:21025)" for the steamless client. Prepended verbatim, so it takes either.
 	 */
 	assetBaseUrl?: string;
 
