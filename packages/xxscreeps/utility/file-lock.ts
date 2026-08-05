@@ -11,6 +11,7 @@ export class FileSystemLock implements Disposable {
 	static async acquire(url: URL) {
 		// Lock file maker
 		const tryLock = async (): Promise<FileSystemLock> => {
+			await fs.mkdir(new URL('.', url), { recursive: true });
 			const file = await fs.open(url, 'wx');
 			await file.write(`${process.pid}`);
 			await file.close();
