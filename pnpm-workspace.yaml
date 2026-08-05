@@ -10,6 +10,8 @@ allowBuilds:
   ivm-inspect: true
 
 minimumReleaseAgeExclude:
+  - screeps-client@0.18.0
+  - xxscreeps-mod-client@0.3.8
   - '@xxscreeps/pathfinder-darwin-arm64@0.4.3'
   - '@xxscreeps/pathfinder-darwin-x64@0.4.3'
   - '@xxscreeps/pathfinder-linux-arm64-gnu@0.4.3'
