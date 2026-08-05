@@ -13,7 +13,8 @@ export interface BackendConfig {
 
 	/**
 	 * Whether to allow users sign up without steam with only their email address.
-	 * Note: there is currently no confirmation mail send to the user to verify the address.
+	 * Note: xxscreeps itself does not send a confirmation mail; install an email-verification mod
+	 * (which registers a `verifyEmail` handler) and set `autoVerifyEmail: false` to require one.
 	 * @default false
 	 */
 	allowEmailRegistration?: boolean;
@@ -26,6 +27,16 @@ export interface BackendConfig {
 	 * takes either.
 	 */
 	assetBaseUrl?: string;
+
+	/**
+	 * Whether email addresses are trusted immediately on registration/change, rather than held
+	 * pending out-of-band confirmation. When `false`, an address is only held pending — and a
+	 * verification mail sent — if a verification mod is installed (i.e. a `verifyEmail` hook handler
+	 * is registered); with no such mod, addresses are auto-verified regardless, so email never
+	 * silently breaks. Leave `true` unless you run a verification mod.
+	 * @default true
+	 */
+	autoVerifyEmail?: boolean;
 
 	/**
 	 * Network interface to bind server to. Format is: "host" or "host:port". Host can be * to bind
