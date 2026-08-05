@@ -111,5 +111,43 @@ const SetUsernameEndpoint: Endpoint = {
 	}),
 };
 
-const endpoints = [ CheckEmailEndpoint, CheckUsernameEndpoint, SetUsernameEndpoint ];
+interface SetEmailRequest {
+	email: string;
+}
+
+const setEmailRequestSchema: JSONSchemaType<SetEmailRequest> = {
+	type: 'object',
+	properties: {
+		email: { type: 'string' },
+	},
+	required: [ 'email' ],
+};
+
+// Change (or set) the logged-in user's email address. Depending on `backend.autoVerifyEmail` and
+// whether a verification mod is installed, the address is either confirmed immediately or held
+// pending — `pending` in the response tells the client which. Any previously-confirmed address stays
+// active until a pending one is confirmed.
+const SetEmailEndpoint: Endpoint = {
+	method: 'post',
+	path: '/api/user/email',
+
+	execute: makeValidatedPayloadRoute(setEmailRequestSchema, async context => {
+		const { userId } = context.state;
+		if (userId === undefined) {
+			return { error: 'not authenticated' };
+		}
+		const { email } = context.request.body;
+		if (!validateEmail(email)) {
+			return { error: 'invalid' };
+		}
+		const owner = await User.findUserByProvider(context.db, 'email', email);
+		if (owner !== null && owner !== userId) {
+			return { error: 'exists' };
+		}
+		const { pending } = await User.setEmail(context.db, userId, email);
+		return { ok: 1, pending };
+	}),
+};
+
+const endpoints = [ CheckEmailEndpoint, CheckUsernameEndpoint, SetUsernameEndpoint, SetEmailEndpoint ];
 export default endpoints;
