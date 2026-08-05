@@ -12,17 +12,23 @@
     "watch": "tsc -b -w"
   },
   "dependencies": {
+    "@xxscreeps-mod-history/postgres": "^0.1.2",
     "@xxscreeps/client": "workspace:*",
     "@xxscreeps/redis": "workspace:*",
-    "xxscreeps": "workspace:*"
+    "xxscreeps": "workspace:*",
+    "xxscreeps-mod-admin-api": "^0.1.0",
+    "xxscreeps-mod-client": "^0.3.8",
+    "xxscreeps-mod-discord": "^0.1.0",
+    "xxscreeps-mod-email": "^0.1.0",
+    "xxscreeps-mod-history": "^0.2.0"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
-    "@eslint/js": "^9.39.4",
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^9.39.5",
     "@stylistic/eslint-plugin": "^5.10.0",
-    "@typescript-eslint/eslint-plugin": "^8.59.1",
-    "@typescript-eslint/parser": "^8.59.1",
-    "eslint": "^9.39.4",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
+    "eslint": "^9.39.5",
     "eslint-plugin-import": "^2.32.0",
     "ts-json-schema-generator": "^2.9.0",
     "typescript": "^6.0.3"

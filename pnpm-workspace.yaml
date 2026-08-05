@@ -20,6 +20,8 @@ minimumReleaseAgeExclude:
   - '@xxscreeps/pathfinder-linux-x64-musl@0.4.3 || 0.4.4'
   - '@xxscreeps/pathfinder-win32-x64@0.4.3 || 0.4.4'
   - '@xxscreeps/pathfinder@0.4.3 || 0.4.4'
+  - screeps-client@0.18.0
+  - xxscreeps-mod-client@0.3.8
 
 patchedDependencies:
   lodash-es: patches/lodash-es.patch

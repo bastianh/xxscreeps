@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:8.8
+    volumes:
+      - ./data/redis:/data
+  xxscreeps:
+    build:
+      context: .
+    image: xxscreeps
+    depends_on:
+      - redis
+    ports:
+      - "21025:21025"
+    volumes:
+      - ./data:/data
+      # Local dev: mount the sibling Discord mod into node_modules so the bare
+      # specifier `xxscreeps-mod-discord` (listed in data/.screepsrc.yaml) resolves
+      # without publishing it. For prod, publish it and reference it by version.
+      - ../xxscreeps-mod-discord:/xxscreeps/node_modules/xxscreeps-mod-discord:ro
+      # Local dev: mount the sibling history mod. It's a monorepo, so the bare
+      # specifier `xxscreeps-mod-history` maps to its `packages/core` (must be
+      # built: `pnpm build` in that repo so `dist` exists). Bundles the `file`
+      # storage backend; recordings land in /data/screeps/history.
+      - ../xxscreeps-mod-history/packages/core:/xxscreeps/node_modules/xxscreeps-mod-history:ro
+      # Local dev: mount the sibling email mod so the bare specifier
+      # `xxscreeps-mod-email` (listed in data/.screepsrc.yaml) resolves. Unlike the
+      # other mods it has a runtime dep (nodemailer), so its own node_modules must be
+      # installed first (`pnpm install` in that repo) — the mount is read-only.
+      - ../xxscreeps-mod-email:/xxscreeps/node_modules/xxscreeps-mod-email:ro
+      # Local dev: mount the sibling admin-api mod so the bare specifier
+      # `xxscreeps-mod-admin-api` (listed in data/.screepsrc.yaml) resolves. It has
+      # no runtime deps, but ships built output — run `pnpm build` in that repo so
+      # `dist` exists before starting. Serves /admin on the normal 21025 port.
+      - ../xxscreeps-mod-admin-api:/xxscreeps/node_modules/xxscreeps-mod-admin-api:ro
+      # Local dev: mount the sibling debugger mod so the bare specifier
+      # `xxscreeps-mod-debugger` (listed in data/.screepsrc.yaml) resolves. It ships
+      # built output (run `pnpm build` so `dist` exists) and has a runtime dep (`ws`),
+      # so its own node_modules must be installed first (`pnpm install`) — the mount
+      # includes them. Chrome DevTools for user code; see debugger block below.
+      - ../xxscreeps-mod-debugger:/xxscreeps/node_modules/xxscreeps-mod-debugger:ro
+      #- ../screeps-client/screeps-client/dist/xxscreeps-mod:/xxscreeps/node_modules/.pnpm/screeps-client@0.13.1/node_modules/screeps-client/dist/xxscreeps-mod:ro
+    working_dir: /data
+    tty: true
+    stdin_open: true
+    command: start
+
+volumes:
+  redis-data:
