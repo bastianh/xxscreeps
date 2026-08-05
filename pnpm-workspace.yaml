@@ -21,6 +21,8 @@ minimumReleaseAgeExclude:
   - '@xxscreeps/pathfinder-win32-x64'
   - '@xxscreeps/pathfinder'
   - 'ivm-inspect@6.0.0'
+  - screeps-client@0.18.0
+  - xxscreeps-mod-client@0.3.8
 
 patchedDependencies:
   lodash-es: patches/lodash-es.patch
