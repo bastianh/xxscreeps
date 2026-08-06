@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { AnyStructure } from 'xxscreeps/mods/classic/structure/structure.js';
-import { bindRenderer, hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, bindRenderer, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { config } from 'xxscreeps/config/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { getRoomChannel, pushIntentsForRoomNextTick, userToIntentRoomsSetKey, userToPresenceRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
@@ -53,10 +53,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(objectNameRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		if (context.request.body.type !== 'spawn') {
 			return;
 		}
@@ -70,7 +67,7 @@ hooks.register('route', {
 					structure['#user'] === userId &&
 					structure.name === context.request.body.name
 				) {
-					return { error: 'exists' };
+					throw new ClientError('exists');
 				}
 			}
 		}
@@ -83,10 +80,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(objectNameRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		if (context.request.body.type !== 'spawn') {
 			return;
 		}
@@ -134,10 +128,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(placeSpawnBodyRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name, room: roomName, x, y } = context.request.body;
 		const pos = new RoomPosition(x, y, roomName);
 
@@ -145,7 +136,7 @@ hooks.register('route', {
 		const now = Date.now();
 		const lastSpawn = await context.shard.data.hGet(User.infoKey(userId), 'lastSpawnTime');
 		if (lastSpawn !== null && now < Number(lastSpawn) + config.game.respawnTimeout * 3600 * 1000) {
-			throw new Error('Too soon after last respawn');
+			throw new ClientError('Too soon after last respawn');
 		}
 
 		// Insert delay to workaround client bugs [see room socket]
@@ -154,7 +145,7 @@ hooks.register('route', {
 		// Ensure user has no objects
 		const roomNames = await context.shard.scratch.sMembers(userToIntentRoomsSetKey(userId));
 		if (roomNames.length !== 0) {
-			throw new Error('User has presence');
+			throw new ClientError('User has presence');
 		}
 
 		// Check room eligibility
@@ -162,12 +153,12 @@ hooks.register('route', {
 		runOneShot(context.backend.world, room, context.shard.time, userId, () => {
 			// Check room eligibility
 			if (!room.controller || room.controller.reservation || room.controller.owner) {
-				throw new Error('Room is owned');
+				throw new ClientError('Room is owned');
 			}
 			room['#user'] = room.controller['#user'] = userId;
 			room['#level'] = 1;
 			if (checkCreateConstructionSite(room, pos, 'spawn', name) !== C.OK) {
-				throw new Error('Invalid intent');
+				throw new ClientError('Invalid intent');
 			}
 		});
 
@@ -188,13 +179,10 @@ hooks.register('route', {
 	method: 'post',
 
 	async execute(context) {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const roomNames = await context.shard.scratch.sMembers(userToPresenceRoomsSetKey(userId));
 		if (roomNames.length === 0) {
-			return { error: 'invalid status' };
+			throw new ClientError('invalid status');
 		}
 		await Promise.all(roomNames.map(roomName => pushIntentsForRoomNextTick(context.shard, roomName, userId, {
 			local: { unspawn: [ [] ] },

@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Endpoint } from 'xxscreeps/backend/index.js';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 
@@ -27,7 +27,7 @@ export const MapStatsEndpoint: Endpoint = {
 	execute: makeValidatedPayloadRoute(mapStatsSchema, async context => {
 		const { rooms: roomNames, statName } = context.request.body;
 		if (!roomNames.every(room => /^[EW][0-9]+[NS][0-9]+$/.test(room))) {
-			throw new Error('Invalid room payload');
+			throw new ClientError('Invalid room payload');
 		}
 
 		// TODO: A room status blob that doesn't change every tick would be good

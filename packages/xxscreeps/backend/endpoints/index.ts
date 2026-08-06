@@ -3,6 +3,7 @@ import type Router from 'koa-router';
 import type { Context, State } from 'xxscreeps:backend';
 
 import { hooks } from 'xxscreeps/backend/index.js';
+import { ClientError } from '../error.js';
 import gameEndpoints from './game/index.js';
 import registrationEndpoints from './register.js';
 import userEndpoints from './user/index.js';
@@ -20,7 +21,18 @@ export function installEndpointHandlers(koa: Koa<State, Context>, router: Router
 	];
 	for (const endpoint of endpoints) {
 		router[endpoint.method ?? 'get'](endpoint.path, async (context, next) => {
-			const value = await endpoint.execute(context);
+			const value = await async function() {
+				try {
+					return await endpoint.execute(context);
+				} catch (err) {
+					if (err instanceof ClientError) {
+						// nb: status is assigned before the body so that Koa doesn't reset it to 200
+						context.status = err.status;
+						return { error: err.message };
+					}
+					throw err;
+				}
+			}();
 			if (value === undefined) {
 				return next() satisfies Promise<any> as Promise<unknown>;
 			} else if (value !== true) {

@@ -1,7 +1,7 @@
 import type { Message } from './model.js';
 import type { JSONSchemaType } from 'ajv';
 import type { Endpoint } from 'xxscreeps/backend/index.js';
-import { hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { sendNotification } from 'xxscreeps/mods/meta/notifications/model.js';
@@ -37,10 +37,7 @@ const IndexEndpoint: Endpoint = {
 	path: '/api/user/messages/index',
 
 	async execute(context) {
-		const { userId } = context.state;
-		if (userId == null) {
-			return { error: 'not authenticated' };
-		}
+		const userId = requireUserId(context);
 		const { entries, respondents } = await getConversationIndex(context.db, userId);
 		const userRecords = await Fn.mapAwait(respondents, async id => ({
 			_id: id,
@@ -67,10 +64,7 @@ const ListEndpoint: Endpoint = {
 	path: '/api/user/messages/list',
 
 	execute: makeValidatedQueryRoute(listRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return { error: 'not authenticated' };
-		}
+		const userId = requireUserId(context);
 		const messages = await getConversation(context.db, userId, context.request.query.respondent);
 		return { ok: 1, messages: messages.map(toClientMessage) };
 	}),
@@ -94,22 +88,19 @@ const SendEndpoint: Endpoint = {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(sendRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return { error: 'not authenticated' };
-		}
+		const userId = requireUserId(context);
 		const { respondent } = context.request.body;
 		const text = context.request.body.text.trim();
 		if (text === '' || text.length > kMaxMessageLength) {
-			return { error: 'invalid text' };
+			throw new ClientError('invalid text');
 		}
 		if (respondent === userId) {
-			return { error: 'invalid respondent' };
+			throw new ClientError('invalid respondent');
 		}
 		// The recipient must be a real, registered user.
 		const recipient = await context.db.data.hmGet(User.infoKey(respondent), [ 'username' ]);
 		if (recipient.username == null) {
-			return { error: 'invalid respondent' };
+			throw new ClientError('invalid respondent');
 		}
 
 		await sendMessage(context.db, userId, respondent, text);
@@ -144,10 +135,7 @@ const MarkReadEndpoint: Endpoint = {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(markReadRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return { error: 'not authenticated' };
-		}
+		const userId = requireUserId(context);
 		await markRead(context.db, userId, context.request.body.id);
 		return { ok: 1 };
 	}),

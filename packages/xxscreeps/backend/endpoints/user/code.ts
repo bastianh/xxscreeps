@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Database } from 'xxscreeps/engine/db/index.js';
-import { hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { getConsoleChannel, requestRunnerEval } from 'xxscreeps/engine/runner/model.js';
@@ -13,7 +13,7 @@ const kMaxBranches = 30;
 
 function checkBranchName(branchName: string): asserts branchName is string {
 	if (typeof branchName !== 'string' || branchName.length > 30) {
-		throw new Error('Invalid branch name');
+		throw new ClientError('Invalid branch name');
 	}
 }
 
@@ -57,7 +57,7 @@ function getModulePayloadFromQuery(query: ModulePayload | null | undefined) {
 				typeof content === 'object' && typeof content.binary === 'string') {
 				return Buffer.from(content.binary, 'base64');
 			}
-			throw new TypeError('Invalid payload');
+			throw new ClientError('Invalid payload');
 		}();
 		return [ name, decoded ];
 	});
@@ -77,7 +77,7 @@ function getModulePayloadFromQuery(query: ModulePayload | null | undefined) {
 		}),
 		$$ => Fn.accumulate($$));
 	if (size > kCodeSizeLimit) {
-		throw new Error('Too much code');
+		throw new ClientError('Too much code');
 	}
 	return modules;
 }
@@ -150,10 +150,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(cloneBranchRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 
 		// Check request
 		const branch = await async function() {
@@ -165,9 +162,9 @@ hooks.register('route', {
 		const key = Code.branchManifestKey(userId);
 		const branches = await context.db.data.sMembers(key);
 		if (branches.length >= kMaxBranches) {
-			throw new Error('Too many branches');
+			throw new ClientError('Too many branches');
 		} else if (branches.includes(newName)) {
-			throw new Error('Branch already exists');
+			throw new ClientError('Branch already exists');
 		} else if (branch != null && !branches.includes(branch)) {
 			return;
 		}
@@ -217,10 +214,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(deleteBranchRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const [ branch, currentBranch ] = await Promise.all([
 			getBranchNameFromQuery(context.db, userId, context.request.body.branch),
 			context.shard.data.hGet(User.infoKey(userId), 'branch'),
@@ -254,10 +248,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(setActiveBranchRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const branch = await getBranchNameFromQuery(context.db, userId, context.request.body.branch);
 		if (!await context.db.data.sIsMember(Code.branchManifestKey(userId), branch)) {
 			return;
@@ -321,10 +312,7 @@ hooks.register('route', {
 
 	execute: makeValidatedPayloadRoute(saveCodeRequestSchema, async context => {
 		// Validate this code payload
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const modules = getModulePayloadFromQuery(context.request.body.modules);
 
 		// Save it
@@ -351,10 +339,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(consoleRequestRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { expression } = context.request.body;
 		try {
 			// Try to parse it

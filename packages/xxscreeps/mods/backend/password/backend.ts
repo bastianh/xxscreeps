@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Database } from 'xxscreeps/engine/db/index.js';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { config } from 'xxscreeps/config/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { findUserByName, findUserByProvider, infoKey } from 'xxscreeps/engine/db/user/index.js';
@@ -62,8 +62,7 @@ hooks.register('route', {
 				return { ok: 1, token: await context.flushToken() };
 			}
 		}
-		context.status = 401;
-		return 'Unauthorized';
+		throw new ClientError('Unauthorized', 401);
 	}),
 });
 
@@ -87,16 +86,13 @@ hooks.register('route', {
 	path: '/api/user/password',
 
 	execute: makeValidatedPayloadRoute(passwordUpdateRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { oldPassword, password } = context.request.body;
 		if (
 			password.length < 8 ||
 			await checkPassword(context.db, userId, oldPassword) === false
 		) {
-			return { error: 'Invalid password' };
+			throw new ClientError('Invalid password');
 		}
 		await setPassword(context.db, userId, password);
 		return { ok: 1 };
@@ -127,10 +123,10 @@ hooks.register('route', {
 	execute: makeValidatedPayloadRoute(registerRequestSchema, async context => {
 		const { username, email, password } = context.request.body;
 		if (!User.checkUsername(username)) {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 		if (await User.findUserByName(context.db, username) !== null) {
-			return { error: 'exists' };
+			throw new ClientError('exists');
 		}
 		if (allowEmailRegistration) {
 			const newUserId = Id.generateId(12);
@@ -138,8 +134,7 @@ hooks.register('route', {
 			await setPassword(context.db, newUserId, password);
 			return { ok: 1 };
 		} else {
-			context.status = 500;
-			return { error: 'registration disabled' };
+			throw new ClientError('registration disabled', 500);
 		}
 	}),
 });

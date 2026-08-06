@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Database } from 'xxscreeps/engine/db/index.js';
-import { bindMapRenderer, bindRenderer, hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, bindMapRenderer, bindRenderer, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { renderActionLog } from 'xxscreeps/backend/sockets/render.js';
 import { renderStore } from 'xxscreeps/mods/classic/resource/backend.js';
 import * as C from 'xxscreeps:mods/constants';
@@ -46,12 +46,12 @@ function mutationRoute<Body>(
 	run: (db: Database, userId: string, body: Body) => Promise<C.ErrorCode>,
 ) {
 	return makeValidatedPayloadRoute(schema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return { error: 'not logged in' };
-		}
+		const userId = requireUserId(context);
 		const code = await run(context.db, userId, context.request.body);
-		return code === C.OK ? { ok: 1 } : { error: 'invalid' };
+		if (code !== C.OK) {
+			throw new ClientError('invalid');
+		}
+		return { ok: 1 };
 	});
 }
 

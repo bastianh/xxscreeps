@@ -1,7 +1,7 @@
 import type { JSONSchemaType } from 'ajv';
 import { Ajv } from 'ajv';
 import fetch from 'node-fetch';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
 import { config } from 'xxscreeps/config/index.js';
 
 const ajv = new Ajv();
@@ -57,8 +57,7 @@ if (steamApiKey !== undefined) {
 		execute: makeValidatedPayloadRoute(steamTicketRequestSchema, async context => {
 			// Native auth not implemented, get an API key!
 			if (context.query.useNativeAuth !== undefined) {
-				context.status = 501;
-				return;
+				throw new ClientError('native authentication is not implemented', 501);
 			}
 
 			// Get user id from Steam
@@ -74,7 +73,7 @@ if (steamApiKey !== undefined) {
 				}
 				const { result, steamid } = json.response.params;
 				if (result !== 'OK') {
-					throw new Error('Steam authentication failure');
+					throw new ClientError('Steam authentication failure', 401);
 				}
 
 				// Respond with temporary token. auth/me handles upgrading token to user

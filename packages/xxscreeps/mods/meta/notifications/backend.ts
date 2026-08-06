@@ -1,6 +1,6 @@
 import type { NotifyPrefs } from './prefs.js';
 import type { JSONSchemaType } from 'ajv';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { getNotifyPrefs, setNotifyPrefs } from './prefs.js';
 
 // Mirrors the allowed values from the original screeps-server `/api/user/notify-prefs` handler.
@@ -36,10 +36,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(notifyPrefsRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const body = context.request.body;
 		const prefs: Partial<NotifyPrefs> = {};
 		if (body.disabled != null) {

@@ -7,9 +7,24 @@ import type { RoomObject } from 'xxscreeps/game/object.js';
 import type { Implementation } from 'xxscreeps/utility/types.js';
 import type { Context, State } from 'xxscreeps:backend';
 import { Ajv } from 'ajv';
+import { ClientError } from './error.js';
 import { MapRender, Render, TerrainRender } from './symbols.js';
 
 export { hooks } from './symbols.js';
+export { ClientError } from './error.js';
+
+/**
+ * Reads the authenticated user off the request, rejecting the request if there isn't one. Note that
+ * a request with no credentials at all fails earlier, in the authentication middleware; this covers
+ * guests and half-registered users, who reach the endpoint with no `userId`.
+ */
+export function requireUserId(context: { state: State }) {
+	const { userId } = context.state;
+	if (userId == null) {
+		throw new ClientError('not authenticated', 401);
+	}
+	return userId;
+}
 
 // Koa middleware & generic backend route types
 declare module 'xxscreeps:backend' {
@@ -122,7 +137,7 @@ export function makeValidatedPayloadRoute<Body>(
 		if (validate(context.request.body)) {
 			return execute(context as RouterContext<State, ValidatedRequestContext<ValidatedPayloadRequest<Body>>>);
 		} else {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 	};
 }
@@ -136,7 +151,7 @@ export function makeValidatedQueryRoute<Query>(
 		if (validate(context.request.query)) {
 			return execute(context as RouterContext<State, ValidatedRequestContext<ValidatedQueryRequest<Query>>>);
 		} else {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 	};
 }

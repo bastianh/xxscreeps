@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Endpoint } from 'xxscreeps/backend/index.js';
-import { makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 
 function validateEmail(email: string) {
@@ -25,10 +25,10 @@ const CheckEmailEndpoint: Endpoint = {
 	execute: makeValidatedQueryRoute(checkEmailRequestSchema, async context => {
 		const { email } = context.request.query;
 		if (!validateEmail(email)) {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 		if (await User.findUserByProvider(context.db, 'email', email) !== null) {
-			return { error: 'exists' };
+			throw new ClientError('exists');
 		}
 		return { ok: 1 };
 	}),
@@ -53,10 +53,10 @@ const CheckUsernameEndpoint: Endpoint = {
 	execute: makeValidatedQueryRoute(checkUsernameRequestSchema, async context => {
 		const { username } = context.request.query;
 		if (!User.checkUsername(username)) {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 		if (await User.findUserByName(context.db, username) !== null) {
-			return { error: 'exists' };
+			throw new ClientError('exists');
 		}
 		return { ok: 1 };
 	}),
@@ -85,16 +85,16 @@ const SetUsernameEndpoint: Endpoint = {
 		// Check for new reg provider
 		const { provider, providerId, userId, newUserId } = context.state;
 		if (provider === undefined || providerId === undefined) {
-			return { error: 'not authenticated' };
+			throw new ClientError('not authenticated', 401);
 		} else if (userId !== undefined || newUserId === undefined) {
-			return { error: 'username already set' };
+			throw new ClientError('username already set');
 		}
 
 		// Sanity check
 		const { username, email: maybeEmail } = context.request.body;
 		const email = maybeEmail === '' ? undefined : maybeEmail;
 		if (!User.checkUsername(username) || (email != null && !validateEmail(email))) {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 
 		// Register

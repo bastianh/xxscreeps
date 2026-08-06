@@ -1,6 +1,6 @@
 import type { ConstructibleStructureType } from './construction-site.js';
 import type { JSONSchemaType } from 'ajv';
-import { bindRenderer, hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, bindRenderer, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { pushIntentsForRoomNextTick } from 'xxscreeps/engine/processor/model.js';
 import { runOneShot } from 'xxscreeps/game/index.js';
 import { RoomPosition } from 'xxscreeps/game/position.js';
@@ -42,10 +42,7 @@ hooks.register('route', {
 	path: '/api/game/create-construction',
 	method: 'post',
 	execute: makeValidatedPayloadRoute(createConstructionIntentRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId === undefined) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name, room: roomName, x, y, structureType } = context.request.body;
 		const pos = new RoomPosition(x, y, roomName);
 		const room = await context.shard.loadRoom(pos.roomName);
@@ -63,9 +60,9 @@ hooks.register('route', {
 			// nb: Screeps actually just inserts this object directly into the database from the backend,
 			// so it can give the client an id immediately. Instead, we return an error and rely on the
 			// socket to show the construction site on tick.
-			return { error: 'actually, it was fine' };
+			throw new ClientError('actually, it was fine');
 		} else {
-			return { error: 'invalid' };
+			throw new ClientError('invalid');
 		}
 	}),
 });

@@ -1,6 +1,6 @@
 import type { Color } from './flag.js';
 import type { JSONSchemaType } from 'ajv';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import * as Id from 'xxscreeps/engine/schema/id.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { RoomPosition } from 'xxscreeps/game/position.js';
@@ -58,10 +58,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(flagColorRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name, color, secondaryColor } = context.request.body;
 
 		if (checkCreateFlag({}, undefined, name, color, secondaryColor) === C.OK) {
@@ -77,7 +74,7 @@ hooks.register('route', {
 			});
 			return { ok: 1 };
 		} else {
-			return { error: 'Invalid intent' };
+			throw new ClientError('Invalid intent');
 		}
 	}),
 });
@@ -99,14 +96,11 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(flagNameRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name } = context.request.body;
 		const flags = await loadUserFlags(context.shard, userId);
 		if (flags[name]) {
-			return { error: 'name exists' };
+			throw new ClientError('name exists');
 		} else {
 			return { ok: 1 };
 		}
@@ -140,10 +134,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(createFlagRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name, color, secondaryColor, room, x, y } = context.request.body;
 		const pos = new RoomPosition(x, y, room);
 		if (checkCreateFlag({}, pos, name, color as Color, secondaryColor as Color) === C.OK) {
@@ -159,7 +150,7 @@ hooks.register('route', {
 			});
 			return { ok: 1 };
 		} else {
-			return { error: 'Invalid intent' };
+			throw new ClientError('Invalid intent');
 		}
 	}),
 });
@@ -169,10 +160,7 @@ hooks.register('route', {
 	method: 'post',
 
 	async execute(context) {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		try {
 			const flags = await loadUserFlags(context.shard, userId);
 			for (let ii = 0; ii < 100; ++ii) {
@@ -193,10 +181,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(flagNameRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { name } = context.request.body;
 		await getFlagChannel(context.shard, userId)
 			.publish({

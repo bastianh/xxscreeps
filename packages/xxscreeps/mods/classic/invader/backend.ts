@@ -1,5 +1,5 @@
 import type { JSONSchemaType } from 'ajv';
-import { hooks, makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { ClientError, hooks, makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { pushIntentsForRoomNextTick } from 'xxscreeps/engine/processor/model.js';
 import { RoomPosition } from 'xxscreeps/game/position.js';
 import * as C from 'xxscreeps:mods/constants';
@@ -30,10 +30,7 @@ hooks.register('route', {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(createInvaderRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId == null) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { room: roomName, x, y, size, type: rawType } = context.request.body;
 		const type = rawType.toLowerCase();
 
@@ -49,13 +46,13 @@ hooks.register('route', {
 		// Room state check
 		const room = await context.shard.loadRoom(pos.roomName);
 		if (room['#user'] !== userId) {
-			throw new Error('Not room owner');
+			throw new ClientError('Not room owner');
 		}
 		const creeps = room.find(C.FIND_CREEPS);
 		if (creeps.filter(creep => creep['#user'] === kInvaderUserId).length >= 5) {
-			throw new Error('Too many invaders');
+			throw new ClientError('Too many invaders');
 		} else if (creeps.some(creep => creep['#user'] !== userId && creep['#user'] !== kInvaderUserId)) {
-			throw new Error('Hostile creeps exist');
+			throw new ClientError('Hostile creeps exist');
 		}
 
 		// Send the intent off to the processor

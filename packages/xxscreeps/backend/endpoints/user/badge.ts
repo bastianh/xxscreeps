@@ -1,7 +1,7 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Endpoint } from 'xxscreeps/backend/index.js';
 import * as assert from 'node:assert';
-import { makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
+import { makeValidatedPayloadRoute, makeValidatedQueryRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import * as Badge from 'xxscreeps/engine/db/user/badge.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 
@@ -22,10 +22,7 @@ const BadgeEndpoint: Endpoint = {
 	method: 'post',
 
 	execute: makeValidatedPayloadRoute(badgeRequestSchema, async context => {
-		const { userId } = context.state;
-		if (userId === undefined) {
-			return { error: 'not logged in' };
-		}
+		const userId = requireUserId(context);
 		const badge = Badge.validate(context.request.body.badge);
 		await Badge.save(context.db, userId, JSON.stringify(badge));
 		return { ok: 1 };

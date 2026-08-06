@@ -1,6 +1,6 @@
 import type { JSONSchemaType } from 'ajv';
 import type { Endpoint } from 'xxscreeps/backend/index.js';
-import { makeValidatedPayloadRoute } from 'xxscreeps/backend/index.js';
+import { makeValidatedPayloadRoute, requireUserId } from 'xxscreeps/backend/index.js';
 import { pushIntentsForRoomNextTick } from 'xxscreeps/engine/processor/model.js';
 
 interface IntentRequest {
@@ -45,10 +45,7 @@ const AddObjectIntentEndpoint: Endpoint = {
 	path: '/api/game/add-object-intent',
 
 	execute: makeValidatedPayloadRoute(addObjectIntentSchema, async context => {
-		const { userId } = context.state;
-		if (userId === undefined) {
-			return;
-		}
+		const userId = requireUserId(context);
 		const { room, name, intent } = context.request.body;
 		for (const oneIntent of Array.isArray(intent) ? intent : [ intent ]) {
 			const { id } = oneIntent;
