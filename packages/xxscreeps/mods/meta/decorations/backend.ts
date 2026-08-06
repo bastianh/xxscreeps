@@ -1,17 +1,18 @@
 import type { DecorationDefinition, DecorationProp } from './catalog.js';
-import type { PlacedDecoration } from './model.js';
+import type { SeasonDecoration } from './config.js';
 import type { Placement, PlacementError, PropValue } from './placement.js';
 import type { JSONSchemaType } from 'ajv';
 import type { Database } from 'xxscreeps/engine/db/index.js';
 import type { Shard } from 'xxscreeps/engine/db/shard.js';
 import * as fs from 'node:fs/promises';
 import { hooks, makeValidatedPayloadRoute, makeValidatedQueryRoute } from 'xxscreeps/backend/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { acquireWith } from 'xxscreeps/utility/async.js';
 import { disposableToEffect } from 'xxscreeps/utility/utility.js';
 import { assetContentType, catalog } from './catalog.js';
 import { activateBadge, activateCreep, activateInRoom, deactivate, getGlobalDecorationChannel, getRoomDecorationChannel, listForRoom, listForUser, listGlobal, ownedDefinition } from './model.js';
-import { isOnWorldMap, isPlacedInRoom } from './placement.js';
+import { conflicts, isOnWorldMap, isPlacedInRoom } from './placement.js';
 import { enumeratedProps } from './renderer.js';
 
 // `_id` is the official client's spelling, a Mongo-ism of the original server. It is wire shape and
@@ -144,17 +145,14 @@ function parseProp(name: string, prop: DecorationProp, value: unknown): ParsedPr
 }
 
 /**
- * The `active` payload of an activation request, checked against what the definition declares.
- * Properties the client left out fall back to the definition's seed, so a placement always carries
- * a complete set and later readers never have to consult the defaults again. Wire-only baggage —
- * the `_id` the client sends back with an edited placement — is stripped before the payload gets
- * here.
+ * Property values checked against what the definition declares, whoever supplied them. Values left
+ * out fall back to the definition's seed, so the result always carries a complete set and later
+ * readers never have to consult the defaults again. Shared by the activation path, whose values
+ * come from the client, and the season set, whose values come from the config — the definition is
+ * the authority either way.
  */
-export function parsePlacement(definition: DecorationDefinition, active: Record<string, unknown>): Placement | PlacementError {
-	const { shard, room, ...rest } = active;
-	// The spread copied only the request's own keys, so what the definition's properties leave
-	// unclaimed is exactly what the request named and the definition does not declare.
-	const unclaimed = new Set(Object.keys(rest));
+function parseProps(definition: DecorationDefinition, values: Record<string, unknown>): Pick<Placement, 'props'> | PlacementError {
+	const unclaimed = new Set(Object.keys(values));
 	const props: Record<string, PropValue> = {};
 	for (const [ name, prop ] of Object.entries(definition.props)) {
 		const sent = unclaimed.delete(name);
@@ -168,15 +166,15 @@ export function parsePlacement(definition: DecorationDefinition, active: Record<
 			}
 			continue;
 		}
-		const parsed = parseProp(name, prop, rest[name]);
+		const parsed = parseProp(name, prop, values[name]);
 		if ('error' in parsed) {
 			return parsed;
 		}
 		// The renderer indexes a table by some of these, so they are closed sets rather than the free
 		// strings the client's editor offers when a pack labels the property its own way.
-		const values = enumeratedProps[name];
-		if (values !== undefined && !values.includes(String(parsed.value))) {
-			return { error: `'${name}' is not one of ${values.map(value => `'${value}'`).join(', ')}` };
+		const allowed = enumeratedProps[name];
+		if (allowed !== undefined && !allowed.includes(String(parsed.value))) {
+			return { error: `'${name}' is not one of ${allowed.map(value => `'${value}'`).join(', ')}` };
 		}
 		props[name] = parsed.value;
 	}
@@ -184,12 +182,28 @@ export function parsePlacement(definition: DecorationDefinition, active: Record<
 	if (unknown !== undefined) {
 		return { error: `'${definition.id}' has no property '${unknown}'` };
 	}
+	return { props };
+}
+
+/**
+ * The `active` payload of an activation request, checked against what the definition declares.
+ * Wire-only baggage — the `_id` the client sends back with an edited placement — is stripped
+ * before the payload gets here.
+ */
+export function parsePlacement(definition: DecorationDefinition, active: Record<string, unknown>): Placement | PlacementError {
+	const { shard, room, ...rest } = active;
+	// The spread copied only the request's own keys, so what the definition's properties leave
+	// unclaimed is exactly what the request named and the definition does not declare.
+	const parsed = parseProps(definition, rest);
+	if ('error' in parsed) {
+		return parsed;
+	}
 	if (!isPlacedInRoom(definition.type)) {
-		return { props };
+		return parsed;
 	} else if (typeof shard !== 'string' || typeof room !== 'string') {
 		return { error: `'${definition.id}' must be placed in a room` };
 	}
-	return { shard, room, props };
+	return { shard, room, props: parsed.props };
 }
 
 /**
@@ -310,13 +324,84 @@ hooks.register('route', {
 	},
 });
 
-/** An item as the room and map views report it: the placement plus who owns it. */
-const toClientItem = (item: PlacedDecoration) => ({
+/** What one wire item is made of; placements carry an owner, season items carry none. */
+interface ClientItemSource {
+	id: string;
+	userId?: string;
+	definition: DecorationDefinition;
+	active: Placement;
+}
+
+/**
+ * An item as the room and map views report it: the placement plus who owns it. A season item,
+ * which nobody owns, carries no `user` at all — only the client's creep and object processors read
+ * the field, and neither type can be a season item.
+ */
+const toClientItem = (item: ClientItemSource) => ({
 	_id: item.id,
-	user: item.userId,
+	...item.userId !== undefined && { user: item.userId },
 	active: placementToWire(item.id, item.active),
 	decoration: toClientDefinition(item.definition),
 });
+
+/**
+ * Season decorations: a server-wide default set every room reports, the way the official season
+ * servers dress the whole world. They are config rather than placements — no owner, no store, no
+ * channel, never on the world map — resolved against the catalog once at startup, fatally on
+ * anything wrong, for the same reason a broken pack is fatal: the alternative is serving rooms the
+ * client cannot render.
+ */
+export function resolveSeasonDecorations(definitions: ReadonlyMap<string, DecorationDefinition>, entries: readonly SeasonDecoration[]) {
+	const resolved = entries.map(({ id, props }) => {
+		const definition = definitions.get(id);
+		if (definition === undefined) {
+			throw new Error(`Season decoration '${id}' is not in the catalog`);
+		}
+		// `creep` and `badge` stand in no room. `object` does, and having no owner is what makes it
+		// work here: the client's object processor only compares owners when the item carries one, so
+		// an ownerless overlay is drawn on every object of that kind rather than on nobody's.
+		if (!isPlacedInRoom(definition.type)) {
+			throw new Error(`Season decoration '${id}' is of type '${definition.type}', which cannot dress a room`);
+		}
+		const parsed = parseProps(definition, props ?? {});
+		if ('error' in parsed) {
+			throw new Error(`Season decoration '${id}': ${parsed.error}`);
+		}
+		return { definition, props: parsed.props };
+	});
+	resolved.forEach((item, index) => {
+		const before = resolved.slice(0, index);
+		if (before.some(earlier => earlier.definition === item.definition)) {
+			throw new Error(`Season decoration '${item.definition.id}' is named twice`);
+		}
+		// The set stands in every room at once, so entries that could not share one room are refused
+		// outright — the same conflict rules a player's placements are held to.
+		const conflicting = before.find(earlier => conflicts(earlier.definition, item.definition));
+		if (conflicting !== undefined) {
+			throw new Error(`Season decorations '${conflicting.definition.id}' and '${item.definition.id}' conflict`);
+		}
+	});
+	return resolved.map(item => toClientItem({
+		id: `season/${item.definition.id}`,
+		definition: item.definition,
+		active: { props: item.props },
+	}));
+}
+
+/** The season set, resolved once — a broken entry fails the server at startup. */
+const seasonItems = resolveSeasonDecorations(catalog.definitions, config.decorations?.season ?? []);
+
+/** Everything one room shows: player placements, the creep decorations, then the season set. */
+export async function listRoomClientItems(db: Database, shardName: string, room: string, season = seasonItems) {
+	const [ placed, global ] = await Promise.all([
+		listForRoom(db, shardName, room),
+		listGlobal(db),
+	]);
+	// The season set rides last: the client picks its wall and floor landscape with a first-match
+	// `find` over this array, so whatever a player placed in the room wins over the server-wide
+	// default — season items are default values, not overrides.
+	return [ ...[ ...placed, ...global ].map(toClientItem), ...season ];
+}
 
 interface RoomDecorationsRequest {
 	room: string;
@@ -337,11 +422,7 @@ hooks.register('route', {
 
 	execute: makeValidatedQueryRoute(roomDecorationsSchema, async context => {
 		const { room, shard } = context.request.query;
-		const [ placed, global ] = await Promise.all([
-			listForRoom(context.db, shard ?? context.shard.name, room),
-			listGlobal(context.db),
-		]);
-		return { ok: 1, decorations: [ ...placed, ...global ].map(toClientItem) };
+		return { ok: 1, decorations: await listRoomClientItems(context.db, shard ?? context.shard.name, room) };
 	}),
 });
 
@@ -364,11 +445,7 @@ hooks.register('roomSocket', async (shard, userId, roomName) => {
 				return {};
 			}
 			stale = false;
-			const [ placed, global ] = await Promise.all([
-				listForRoom(shard.db, shard.name, roomName),
-				listGlobal(shard.db),
-			]);
-			return { decorations: [ ...placed, ...global ].map(toClientItem) };
+			return { decorations: await listRoomClientItems(shard.db, shard.name, roomName) };
 		},
 	];
 });
@@ -378,7 +455,8 @@ hooks.register('roomSocket', async (shard, userId, roomName) => {
 const hasRoomDecorations = Fn.some(catalog.definitions.values(), definition => isPlacedInRoom(definition.type));
 
 // Creep decorations are deliberately absent: they belong to a creep rather than to a room, so there
-// is no room for the map to draw them in.
+// is no room for the map to draw them in. The season set is absent too — the whole point of a
+// season is dressing every room without repainting the map.
 if (hasRoomDecorations) {
 	hooks.register('mapStats', async (context, { rooms, response, userIds }) => {
 		const decorations: Record<string, unknown> = {};

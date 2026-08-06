@@ -27,6 +27,21 @@
                     "description": "Whether placing a decoration requires the player to control or reserve the room.",
                     "type": "boolean",
                     "default": true
+                },
+                "season": {
+                    "description": "Decorations every room shows by default, the way the official season servers dress the whole world. Each entry names a decoration from the catalog, with optional property values replacing its seeds. Served after what players placed, so a player's own placement wins over the season's; the world map never shows them.",
+                    "items": {
+                        "properties": {
+                            "id": { "type": "string" },
+                            "props": {
+                                "additionalProperties": { "anyOf": [ { "type": "boolean" }, { "type": "number" }, { "type": "string" } ] },
+                                "type": "object"
+                            }
+                        },
+                        "required": [ "id" ],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
