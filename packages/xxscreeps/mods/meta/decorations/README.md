@@ -210,6 +210,36 @@ this one answers with their active badge decorations.
 Deactivating a badge takes the symbol out of the editor. A badge already saved from it stays as it
 was — the user's badge is a fact of its own, not a view onto the grant.
 
+## Season decorations
+
+`decorations.season` dresses every room on the server at once, the way the official season servers
+do. Each entry names a decoration from the catalog, with optional property values replacing its
+seeds:
+
+```yaml
+decorations:
+  season:
+    - id: xx-floor-plain
+      props: { floorBackgroundColor: '#1a2b3c' }
+    - id: xx-wall-plain
+```
+
+Season items are config, not placements: nobody owns them, nothing is stored, and the world map
+never shows them. They are served after what players placed, and the client picks its wall and
+floor landscape by first match — so in a room where a player placed their own landscape, the
+player's wins and the season set is only the default. Graffiti stacks instead of competing, so
+season graffiti shows everywhere regardless.
+
+`object` decorations stack the same way, and owning nobody is what lets them: the client's object
+processor compares owners only when the item carries one, so an ownerless overlay is drawn on every
+object of its kind rather than on nobody's. That is how a season set dresses every controller on the
+server — and it means a player who placed an overlay of their own on the same kind of object gets
+both, since nothing there is picked by first match.
+
+Every room-placed type is accepted, `creep` and `badge` are not, and entries that could not share
+one room are refused. Anything wrong — an id the catalog does not define, a property value the
+definition rejects — fails the server at startup, exactly like a broken pack.
+
 ## Configuration
 
 ```yaml
@@ -222,6 +252,8 @@ decorations:
   requireRoomOwnership: true
   # Extra packs, as a path to a pack.yaml or the directory holding one
   packs: [ ./my-pack ]
+  # Decorations every room shows by default; players' own placements win over them
+  season: [ { id: xx-floor-plain } ]
 backend:
   # Only needed when the backend is not at the root of the origin serving the client. An origin of
   # its own, or the path a proxy mounts it under — e.g. "/(http://localhost:21025)" for steamless

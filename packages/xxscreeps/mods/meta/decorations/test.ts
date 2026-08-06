@@ -1,4 +1,5 @@
 import type { DecorationPack, PackSource } from './catalog.js';
+import type { SeasonDecoration } from './config.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -9,7 +10,7 @@ import * as User from 'xxscreeps/engine/db/user/index.js';
 import { insertControlledRoom } from 'xxscreeps/mods/classic/controller/model.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
-import { activate, parsePlacement, placementToWire } from './backend.js';
+import { activate, listRoomClientItems, parsePlacement, placementToWire, resolveSeasonDecorations } from './backend.js';
 import { catalog, loadCatalog } from './catalog.js';
 import { deactivate, deactivateStranded, grant, listForRoom, listForUser, listGlobal, revoke } from './model.js';
 import { conflicts, isOnWorldMap } from './placement.js';
@@ -848,6 +849,80 @@ describe('mods/meta/decorations', () => {
 			await activate(db, testShard.shard, alice, 'xx-floor-plain', floorPlacement({ world: false }));
 			const [ hidden ] = await listForRoom(db, shard, roomName);
 			assert.strictEqual(isOnWorldMap(hidden!.active), false);
+		});
+	});
+
+	describe('season', () => {
+		// Resolution is fatal by design, and the config singleton makes import-time fatality true by
+		// construction — so, like the catalog's own loader, the resolver is tested directly.
+		const resolve = (...entries: SeasonDecoration[]) => resolveSeasonDecorations(catalog.definitions, entries);
+
+		test('an entry the catalog does not define is fatal', () => {
+			assert.throws(() => resolve({ id: 'no-such-decoration' }), /not in the catalog/);
+		});
+
+		test('a type that cannot dress a room is fatal', () => {
+			assert.throws(() => resolve({ id: 'xx-chevrons' }), /cannot dress a room/, 'a badge is worn');
+			assert.throws(() => resolve({ id: 'xx-orbit' }), /cannot dress a room/, 'a creep decoration follows its owner');
+		});
+
+		// The client's object processor compares owners only when the item carries one, so an
+		// ownerless overlay decorates every object of its kind — which is what a season set wants.
+		test('an object decoration dresses a room, and owns nobody', () => {
+			const [ item ] = resolve({ id: 'xx-halo' });
+			assert.strictEqual(item?._id, 'season/xx-halo');
+			assert.ok(!('user' in item), 'an owner would narrow it to one player\'s objects');
+			assert.strictEqual(item.decoration.objectType, 'spawn');
+		});
+
+		test('property values are checked against the definition', () => {
+			assert.throws(() => resolve({ id: 'xx-floor-plain', props: { nope: 1 } }), /'xx-floor-plain' has no property 'nope'/);
+			assert.throws(() => resolve({ id: 'xx-floor-plain', props: { floorBackgroundColor: 'red' } }), /Season decoration 'xx-floor-plain'/);
+			assert.throws(() => resolve({ id: 'xx-floor-plain', props: { floorBackgroundBrightness: 99 } }), /maximum/);
+		});
+
+		test('entries that could not share a room are fatal', () => {
+			assert.throws(() => resolve({ id: 'xx-floor-plain' }, { id: 'xx-room-neon' }), /conflict/);
+			// Graffiti stacks freely, so only the duplicate check catches naming it twice.
+			assert.throws(() => resolve({ id: 'xx-tag' }, { id: 'xx-tag' }), /named twice/);
+			assert.strictEqual(resolve({ id: 'xx-floor-plain' }, { id: 'xx-wall-plain' }).length, 2);
+		});
+
+		test('a season item wears the wire shape a placement does, minus any owner', () => {
+			const floor = catalog.definitions.get('xx-floor-plain')!;
+			const [ item ] = resolve({ id: 'xx-floor-plain', props: { floorBackgroundColor: '#0000ff' } });
+			assert.strictEqual(item?._id, 'season/xx-floor-plain');
+			assert.ok(!('user' in item));
+			assert.strictEqual(item.active._id, 'season/xx-floor-plain');
+			assert.ok(!('shard' in item.active), 'a season item names no target');
+			assert.ok(!('room' in item.active));
+			assert.strictEqual(item.active.floorBackgroundColor, '#0000ff');
+			assert.strictEqual(item.active.roadsColor, floor.props.roadsColor!.default, 'an omitted property is at its seed');
+			assert.strictEqual(item.decoration._id, 'xx-floor-plain');
+		});
+
+		test('the season set rides after what players placed', async () => {
+			await using testShard = await instantiateTestShard();
+			using grantAll = withGrantAll(true);
+			const { db } = testShard;
+			await insertControlledRoom(testShard.shard, alice, roomName);
+			await activate(db, testShard.shard, alice, 'xx-wall-plain', floorPlacement());
+
+			// One helper feeds both the http route and the socket frames, so this covers either. The
+			// client picks its landscapes first-match, so the order is the player's placement winning.
+			const items = await listRoomClientItems(db, shard, roomName, resolve({ id: 'xx-floor-plain' }));
+			assert.deepStrictEqual(items.map(item => item._id), [ 'xx-wall-plain', 'season/xx-floor-plain' ]);
+		});
+
+		test('the world map never sees a season item', async () => {
+			await using testShard = await instantiateTestShard();
+			const { db } = testShard;
+
+			// Every room reports the season set, but `listForRoom` — the only source the mapStats hook
+			// draws from — never carries it.
+			const items = await listRoomClientItems(db, shard, roomName, resolve({ id: 'xx-floor-plain' }));
+			assert.deepStrictEqual(items.map(item => item._id), [ 'season/xx-floor-plain' ]);
+			assert.deepStrictEqual(await listForRoom(db, shard, roomName), []);
 		});
 	});
 });
