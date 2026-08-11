@@ -886,6 +886,8 @@ describe('mods/meta/decorations', () => {
 			// Graffiti stacks freely, so only the duplicate check catches naming it twice.
 			assert.throws(() => resolve({ id: 'xx-tag' }, { id: 'xx-tag' }), /named twice/);
 			assert.strictEqual(resolve({ id: 'xx-floor-plain' }, { id: 'xx-wall-plain' }).length, 2);
+			// Overlays only argue with their own kind decorating the same object type.
+			assert.strictEqual(resolve({ id: 'xx-halo' }, { id: 'xx-ring' }).length, 2);
 		});
 
 		test('a season item wears the wire shape a placement does, minus any owner', () => {
