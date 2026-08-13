@@ -82,6 +82,7 @@ jobs:
             cmake
             libboost-all-dev
             libclang-rt-22-dev
+            libstdc++-16-dev
             lld-22
             llvm-22
             ninja-build
