@@ -2,7 +2,8 @@ import type { PayloadWorld } from './payload.js';
 import type { ExitMap, GenerateRoomOptions, HighwayOrientation, RoomGeneratorContext } from './symbols.js';
 import type { Shard } from 'xxscreeps/engine/db/index.js';
 import type { RoomType } from 'xxscreeps/mods/modern/sector/terrain.js';
-import { mappedNumericComparator } from 'xxscreeps/functional/comparator.js';
+import { isSystemUser } from 'xxscreeps/engine/processor/model.js';
+import { mappedNumericComparator, mappedPrimitiveComparator } from 'xxscreeps/functional/comparator.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import * as C from 'xxscreeps/game/constants/index.js';
 import { makeLocalIterateInRangeTo } from 'xxscreeps/game/direction.js';
@@ -1414,4 +1415,88 @@ export function generateWorld(sectorName: string): PayloadWorld {
 	const rooms = [ ...buildRooms(planned, undefined, terrainMap, planned) ];
 	refreshRoomMeta(terrainMap, planned);
 	return { rooms, terrain: makeWriter(MapSchema.schema)(terrainMap) };
+}
+
+/** A room on the world's outer boundary, with the sides facing rooms the world lacks. */
+export interface BoundaryRoom {
+	roomName: string;
+	sealed: (keyof ExitMap)[];
+}
+
+/** The `packExits` bits of one room -- all the boundary walk reads of a terrain record. */
+interface RoomExitBits {
+	exits: number;
+}
+
+// Every room holding an opening onto a room the world doesn't have, in room-name order. A room
+// generated with no neighbor rolls ordinary exits on that side, so this is the whole outer boundary
+// of a freshly built world -- and it is empty once the boundary is sealed, which makes the pass
+// idempotent. `sealed` carries every side facing the void, opening or not: `buildRoom` re-rolls any
+// border the caller doesn't author, so a side already walled off has to be authored again to stay
+// that way.
+export function worldBoundary(terrainMap: ReadonlyMap<string, RoomExitBits>): BoundaryRoom[] {
+	return [ ...Fn.pipe(
+		terrainMap.entries(),
+		$$ => Fn.map($$, ([ roomName, { exits } ]) => {
+			const { rx, ry } = parseSignedRoomName(roomName);
+			const sealed = [ ...Fn.reject(kSides, dir => {
+				const side = kRoomSides[dir];
+				return terrainMap.has(makeSignedRoomName(rx + side.dxx, ry + side.dyy));
+			}) ];
+			return { roomName, sealed, exits };
+		}),
+		$$ => Fn.filter($$, room => Fn.some(room.sealed, dir => (room.exits & kRoomSides[dir].exitBit) !== 0)),
+		$$ => Fn.map($$, ({ roomName, sealed }): BoundaryRoom => ({ roomName, sealed })),
+	) ].sort(mappedPrimitiveComparator(room => room.roomName));
+}
+
+/** The rooms `sealWorldBoundary` would rebuild, without touching storage. */
+export async function findWorldBoundary(shard: Shard): Promise<BoundaryRoom[]> {
+	const world = await shard.loadWorld();
+	return worldBoundary(world.terrain);
+}
+
+// Walls off the world's outer boundary. A room is generated against whatever neighbors already
+// exist and rolls ordinary exits toward the ones that don't, so the outermost rooms of a finished
+// world open onto nothing: the map draws the exit, `describeExits` reports it, and a creep stepping
+// onto that border tile is handed to a room that does not exist. Each such room is rebuilt with
+// its outward borders walled off the way a room generated against an absent neighbor would have
+// been -- the terrain grows a wall mass over the sealed side instead of ending at a bare border
+// line -- while every inward border is inherited from the neighbor that already authored it, so no
+// shared border moves and the world's room set stands.
+//
+// Rebuilding re-rolls a room's terrain and objects, so this is a world-authoring step: run it once
+// the world's extent is final, and before players are placed -- a boundary room holding a player's
+// objects is refused rather than thrown away. A rebuilt room takes the loadout of its mod-10
+// template type, so a boundary room a bare `generate-room` authored off-template comes back as the
+// highway, source-keeper or center room its name says it is. The seal is inherited like any other
+// border, so a sector generated against a sealed boundary afterwards carries it as an interior wall.
+export async function sealWorldBoundary(shard: Shard, options?: GenerateRoomOptions): Promise<Room[]> {
+	await ensureWorldTerrain(shard);
+	const world = await shard.loadWorld();
+	const terrainMap = new Map(world.terrain);
+	const boundary = worldBoundary(terrainMap);
+
+	const claimed = Fn.pipe(
+		await Fn.mapAwait(boundary, ({ roomName }) => shard.loadRoom(roomName, shard.time, true)),
+		$$ => Fn.reject($$, room => Fn.every(room['#users'].presence, isSystemUser)),
+		$$ => Fn.map($$, room => room.name),
+		$$ => [ ...$$ ]);
+	if (claimed.length > 0) {
+		throw new Error(`Refusing to rebuild boundary rooms holding player objects: ${claimed.join(', ')}`);
+	}
+
+	// Each room is committed before the next is built, so a boundary room facing another one shares
+	// the border it has just authored.
+	const rooms = boundary.map(({ roomName, sealed }) => {
+		const roomOptions = sectorRoomOptions(roomName, roomType(roomName), options, sealed);
+		const { room, terrain } = buildRoom(roomName, roomOptions, neighborName => terrainMap.get(neighborName));
+		commitRoom(terrainMap, roomName, terrain);
+		return room;
+	});
+	// `commitRoom` empties a record's sector meta, and the room set is unchanged, so this restamps
+	// the rebuilt rooms with the geometry they already had.
+	refreshRoomMeta(terrainMap, Fn.map(rooms, room => room.name));
+	await flushRooms(shard, terrainMap, rooms);
+	return rooms;
 }
