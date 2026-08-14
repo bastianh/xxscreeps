@@ -211,6 +211,42 @@ holding a player's objects is refused. Also available as
 `npx xxscreeps seal-world`, taking the `generate-room` flags plus `--dry-run`
 to list the rooms it would rebuild.
 
+## Backing up and moving a server
+
+`xxscreeps backup` copies a whole server out to one file, and `xxscreeps
+restore` writes it back — onto the same machine, or onto another one running a
+different storage provider:
+
+```
+npx xxscreeps backup server.bin
+npx xxscreeps restore server.bin --force
+npx xxscreeps restore server.bin
+```
+
+`backup` walks every key of the database and of each configured shard — users,
+code, rooms, terrain, memory, schema archives, whatever a mod wrote. `restore`
+reads that file back into whatever the target's `.screepsrc.yaml` configures, so
+a world kept in local files moves onto redis by backing up on one side and
+restoring on the other. It replaces the target's stores outright, hence
+`--force`; without it, `restore` runs every check it would run and describes
+what the file holds instead of writing anything.
+
+Stop the server at both ends. `backup` holds each shard's game mutex, so a
+server which is up but paused cannot tick mid-scan, but `restore` has nothing to
+synchronize against. Keys carrying an expiry — locks, sessions — are left out,
+since a backup has nowhere to record the time they have left.
+
+This works underneath the game model, so it is not a migration tool: the build
+reading a backup has to understand the blobs inside it. Restore onto the same
+version of xxscreeps or a newer one.
+
+One direction is refused rather than guessed at. Redis stores text and binary
+as the same thing, while the local providers file blobs separately and read
+them back through a different path, so a backup taken from redis cannot say
+which of its values are which. Redis to redis, local to local, and local to
+redis are all exact; redis to local stops with an error before it touches
+anything.
+
 ## Docker
 
 If you want to run xxscreeps in Docker, you can do this:
