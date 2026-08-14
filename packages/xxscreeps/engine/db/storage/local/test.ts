@@ -1,3 +1,4 @@
+import type { KeyType } from 'xxscreeps/engine/db/storage/provider.js';
 import { instantiateTestShard } from 'xxscreeps/test/import.js';
 import { assert, describe, test } from 'xxscreeps/test/index.js';
 
@@ -56,5 +57,51 @@ describe('engine/db/storage/local', () => {
 		assert.deepStrictEqual([ ...(await data.get(key, { blob: true }))! ], [ 4, 5, 6 ]);
 		// A now-stale prior no longer matches, so the swap is refused.
 		assert.strictEqual(await data.set(key, first, { if: { if: 'EQ', value: first } }), false);
+	});
+
+	test('separatesBlobs describes whether text and binary share a home', async () => {
+		await using testShard = await instantiateTestShard();
+		const { scratch } = testShard.shard;
+		await scratch.set('text', 'hello');
+		if (await scratch.separatesBlobs()) {
+			// The blob accessor looks somewhere the string never reached
+			assert.strictEqual(await scratch.get('text', { blob: true }), null);
+		} else {
+			assert.deepStrictEqual([ ...(await scratch.get('text', { blob: true }))! ], [ 104, 101, 108, 108, 111 ]);
+		}
+	});
+
+	test('scan reports every key under a type it reads back by', async () => {
+		await using testShard = await instantiateTestShard();
+		const { scratch } = testShard.shard;
+		await Promise.all([
+			scratch.set('text', 'hello'),
+			scratch.set('binary', Uint8Array.from([ 0, 1, 255 ])),
+			scratch.hmSet('hash', { field: 'value' }),
+			scratch.rPush('list', [ 'x', 'y' ]),
+			scratch.sAdd('set', [ 'member' ]),
+			scratch.zAdd('zset', [ [ 3, 'scored' ] ]),
+		]);
+		const found = new Map<string, KeyType>();
+		let cursor = '0';
+		do {
+			const result = await scratch.scan(cursor);
+			for (const [ key, type ] of result.entries) {
+				found.set(key, type);
+			}
+			cursor = result.cursor;
+		} while (cursor !== '0');
+
+		assert.deepStrictEqual(
+			[ ...found.keys() ].sort(),
+			[ 'binary', 'hash', 'list', 'set', 'text', 'zset' ]);
+		assert.strictEqual(found.get('hash'), 'hash');
+		assert.strictEqual(found.get('list'), 'list');
+		assert.strictEqual(found.get('set'), 'set');
+		assert.strictEqual(found.get('zset'), 'zset');
+		// The two which only a separating provider can tell apart
+		const separates = await scratch.separatesBlobs();
+		assert.strictEqual(found.get('text'), separates ? 'string' : 'bytes');
+		assert.strictEqual(found.get('binary'), separates ? 'blob' : 'bytes');
 	});
 });

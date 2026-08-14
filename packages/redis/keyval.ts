@@ -54,6 +54,19 @@ function sendOk(value: string | null) {
 	}
 }
 
+function keyTypeOf(key: string, type: string): Pr.KeyType {
+	switch (type) {
+		// Text and binary are the same thing to redis, and which one a key holds is not recorded
+		// anywhere, so this is as far as `scan` can narrow it down
+		case 'string': return 'bytes';
+		case 'hash': return 'hash';
+		case 'list': return 'list';
+		case 'set': return 'set';
+		case 'zset': return 'zset';
+		default: throw new Error(`'${key}' holds unsupported redis type '${type}'`);
+	}
+}
+
 function zAggregate(keys: string[], aggregate?: Pr.ZAggregate) {
 	const weights = aggregate?.weights;
 	if (weights) {
@@ -441,5 +454,23 @@ export class RedisProvider extends AsyncDisposableResource implements Pr.KeyValP
 
 	async save() {
 		// redis manages it for us
+	}
+
+	separatesBlobs() {
+		return Promise.resolve(false);
+	}
+
+	async scan(cursor: string): Promise<Pr.ScanResult> {
+		const { cursor: next, keys } = await this.keyval.scan(cursor, { COUNT: 1000 });
+		const typed = await Fn.mapAwait(keys, async key => [ key, await this.keyval.type(key) ] as const);
+		return {
+			cursor: next,
+			entries: Fn.pipe(
+				typed,
+				// A key dropped between the scan and its type lookup reads back as 'none'
+				$$ => Fn.reject($$, ([ , type ]) => type === 'none'),
+				$$ => Fn.map($$, ([ key, type ]): [ string, Pr.KeyType ] => [ key, keyTypeOf(key, type) ]),
+				$$ => [ ...$$ ]),
+		};
 	}
 }

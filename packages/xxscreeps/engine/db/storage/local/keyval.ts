@@ -60,6 +60,29 @@ function checkRangeDirection<Type extends number | string>(min: Type, max: Type,
 	}
 }
 
+function typeOf(key: string, value: InternalValue): Pr.KeyType {
+	if (value instanceof Array) {
+		return 'list';
+	} else if (value instanceof Map) {
+		// `KeyType` has no way to say "hash of blobs", and nothing outside `scratch` writes one, so a
+		// consumer would silently stringify the buffer rather than notice
+		const binary = Fn.find(value, ([ , field ]) => ArrayBuffer.isView(field));
+		if (binary) {
+			throw new Error(`'${key}' holds a binary value under field '${binary[0]}'`);
+		}
+		return 'hash';
+	} else if (value instanceof Set) {
+		return 'set';
+	} else if (value instanceof SortedSet) {
+		return 'zset';
+	} else if (ArrayBuffer.isView(value)) {
+		// `set` routes every buffer to blob storage, so one sitting in the map has no way in
+		throw new Error(`'${key}' holds a buffer outside of blob storage`);
+	} else {
+		return 'string';
+	}
+}
+
 export class LocalKeyValResponder extends AsyncDisposableResource implements MaybePromises<Pr.KeyValProvider> {
 	readonly blob;
 	private readonly data = new Map<string, InternalValue>();
@@ -818,6 +841,35 @@ export class LocalKeyValResponder extends AsyncDisposableResource implements May
 	async flushdb() {
 		await this.blob.flushdb();
 		this.data.clear();
+		// A name left behind here outlives the key it belonged to, and both `save` and `scan` would
+		// then drop whatever is written under that name next
+		this.expires.clear();
+	}
+
+	separatesBlobs() {
+		return true;
+	}
+
+	/**
+	 * The whole store arrives in the first batch: it is already resident in this process, and the
+	 * responder answers one request at a time, so there is nothing for a cursor to hold onto
+	 * between calls. Keys carrying an expiry are left out, matching `save`, which drops them too.
+	 */
+	async scan(cursor: string): Promise<Pr.ScanResult> {
+		if (cursor !== '0') {
+			throw new Error(`Invalid cursor: '${cursor}'`);
+		}
+		const blobs = await this.blob.keys();
+		return {
+			cursor: '0',
+			entries: [ ...Fn.concat<[ string, Pr.KeyType ]>([
+				Fn.map(blobs, key => [ key, 'blob' ]),
+				Fn.pipe(
+					this.data,
+					$$ => Fn.reject($$, ([ key ]) => this.expires.has(key)),
+					$$ => Fn.map($$, ([ key, value ]) => [ key, typeOf(key, value) ])),
+			]) ],
+		};
 	}
 
 	async save() {
