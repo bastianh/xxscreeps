@@ -202,6 +202,40 @@ options apply to the sector's normal rooms. Also available as
 `npx xxscreeps generate-sector W20N20`, taking the same flags as
 `generate-room`.
 
+## Moving a server
+
+`xxscreeps archive` copies a whole server between machines, or between storage
+providers, without going through the provider's own on-disk format:
+
+```
+npx xxscreeps archive export server.bin
+npx xxscreeps archive import server.bin --force
+npx xxscreeps archive info server.bin
+```
+
+`export` walks every key of the database and of each configured shard into one
+file — users, code, rooms, terrain, memory, schema archives, whatever a mod
+wrote. `import` reads that file back into whatever the target's `.screepsrc.yaml`
+configures, so a world kept in local files moves onto redis by exporting on one
+side and importing on the other. It replaces the target's stores outright,
+hence `--force`. `info` describes an archive without connecting to storage.
+
+Stop the server at both ends. Export holds each shard's game mutex, so a server
+which is up but paused cannot tick mid-scan, but import has nothing to
+synchronize against. Keys carrying an expiry — locks, sessions — are left out,
+since an archive has nowhere to record the time they have left.
+
+This works underneath the game model, so it is not a migration tool: the build
+reading an archive has to understand the blobs inside it. Restore onto the same
+version of xxscreeps or a newer one.
+
+One direction is refused rather than guessed at. Redis stores text and binary
+as the same thing, while the local providers file blobs separately and read
+them back through a different path, so an archive taken from redis cannot say
+which of its values are which. Redis to redis, local to local, and local to
+redis are all exact; redis to local stops with an error before it touches
+anything.
+
 ## Docker
 
 If you want to run xxscreeps in Docker, you can do this:

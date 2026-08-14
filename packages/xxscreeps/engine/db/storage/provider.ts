@@ -61,6 +61,25 @@ export interface ZRank {
 }
 
 export type Value = number | string | Readonly<Uint8Array>;
+
+/**
+ * The shape of the value behind a key, as reported by `scan`.
+ *
+ * `blob` and `string` are the two halves of a distinction only some providers keep: the local
+ * provider stores blobs in their own files and reads them back through disjoint paths, so a value
+ * filed under the wrong one reads as `null`. Redis has no such split -- every one of these is a
+ * redis string -- and reports `bytes` instead, meaning "text or binary, indistinguishable here".
+ *
+ * `hash` is a hash of text fields. Binary hash values exist (room visuals) but only ever in
+ * `scratch`, and no consumer of `scan` has a way to represent them.
+ */
+export type KeyType = 'blob' | 'bytes' | 'hash' | 'list' | 'set' | 'string' | 'zset';
+
+export interface ScanResult {
+	cursor: string;
+	entries: [ key: string, type: KeyType ][];
+}
+
 export interface KeyValProvider {
 	// keys / strings
 	copy(from: string, to: string, options?: Copy): Promise<boolean>;
@@ -142,6 +161,20 @@ export interface KeyValProvider {
 	// management
 	flushdb(): Promise<void>;
 	save(): Promise<void>;
+	/**
+	 * Enumerates every key in the store. Start at `'0'` and keep passing back the cursor you were
+	 * handed until it comes back `'0'` again; a batch may be empty before then. A key which exists
+	 * for the whole iteration is reported at least once, but one added or removed along the way may
+	 * be missed or repeated, so this is a tool for offline work, not for a running server.
+	 */
+	scan(cursor: string): Promise<ScanResult>;
+	/**
+	 * Whether a value written as text and one written as binary land somewhere different, so that
+	 * each reads back only through the accessor which wrote it. This is what `scan` reports as
+	 * `blob` and `string`; a provider answering `false` reports `bytes` instead and will take
+	 * either one back under any accessor.
+	 */
+	separatesBlobs(): Promise<boolean>;
 }
 
 export interface PubSubProvider extends AsyncDisposable {
