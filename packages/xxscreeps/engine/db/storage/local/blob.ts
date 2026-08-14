@@ -10,6 +10,11 @@ import { listen, spread } from 'xxscreeps/utility/async.js';
 import { FileSystemLock } from 'xxscreeps/utility/file-lock.js';
 import { AsyncDisposableResource } from 'xxscreeps/utility/utility.js';
 
+// Safety check before writing random file names based on user input. Note that a blob id can hold
+// no '.', which is what keeps `keys` from mistaking the store's own `data.json`, `.lock`, and
+// `.*.swp` files for blobs.
+const blobIdPattern = /^[a-zA-Z0-9/_-]*[a-zA-Z0-9_-]+$/;
+
 function bytesEqual(left: Readonly<Uint8Array> | null, right: string | Readonly<Uint8Array>) {
 	if (left === null || typeof right === 'string') {
 		return false;
@@ -203,6 +208,34 @@ export class BlobStorage extends AsyncDisposableResource {
 		return value;
 	}
 
+	/**
+	 * Every blob in the store, on disk or written since the last save. Cached absences -- a delete
+	 * which hasn't flushed, or a `get` which missed -- shadow whatever is still on disk.
+	 */
+	async keys() {
+		const keys = new Set<string>();
+		if (this.path !== null) {
+			const entries = await fs.readdir(this.path, { recursive: true, withFileTypes: true });
+			for (const entry of entries) {
+				if (entry.isFile()) {
+					const key = Path.relative(this.path, Path.join(entry.parentPath, entry.name))
+						.split(Path.sep).join('/');
+					if (blobIdPattern.test(key)) {
+						keys.add(key);
+					}
+				}
+			}
+		}
+		for (const [ key, { value } ] of this.cache) {
+			if (value === null) {
+				keys.delete(key);
+			} else {
+				keys.add(key);
+			}
+		}
+		return keys;
+	}
+
 	set(key: string, value: Readonly<Uint8Array>, options?: Storage.Set) {
 		this.check(key);
 		if (options?.if) {
@@ -322,8 +355,7 @@ export class BlobStorage extends AsyncDisposableResource {
 	}
 
 	private check(fragment: string) {
-		// Safety check before writing random file names based on user input
-		if (!/^[a-zA-Z0-9/_-]*[a-zA-Z0-9_-]+$/.test(fragment)) {
+		if (!blobIdPattern.test(fragment)) {
 			throw new Error(`Unsafe blob id: ${fragment}`);
 		}
 	}
