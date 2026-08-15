@@ -7,6 +7,7 @@ const specifier = process.argv[1];
 
 // Launch entry command
 const commands = {
+	'generate-map': './dist/scripts/generate-map.js',
 	'generate-room': './dist/scripts/generate-room.js',
 	'generate-sector': './dist/scripts/generate-sector.js',
 	'seal-world': './dist/scripts/seal-world.js',
