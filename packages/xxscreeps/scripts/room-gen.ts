@@ -233,9 +233,13 @@ function *genExit(): Iterable<number> {
 // to bottom, a horizontal one left to right, and a crossing carries both, so all four of its sides are
 // lane ends. The complement is the sector-facing pair that carries the wall mass and may seal.
 function isHighwayLaneSide(orientation: HighwayOrientation, dir: keyof ExitMap): boolean {
-	return orientation === 'vertical' ? dir === 'top' || dir === 'bottom' :
-		orientation === 'horizontal' ? dir === 'left' || dir === 'right' :
-		true;
+	if (orientation === 'vertical') {
+		return dir === 'top' || dir === 'bottom';
+	} else if (orientation === 'horizontal') {
+		return dir === 'left' || dir === 'right';
+	} else {
+		return true;
+	}
 }
 
 // The live world never narrows the end of a highway lane. Across its 6,832 lane-axis borders every
@@ -254,8 +258,9 @@ function laneEndMargins(rx: number, ry: number, orientation: HighwayOrientation,
 	const along = dir === 'left' || dir === 'right';
 	const inboard = dir === 'top' || dir === 'left' ? 2 : 47;
 	const depthAt = (far: boolean): number => {
-		const bx = along ? inboard : far ? 49 : 0;
-		const by = along ? far ? 49 : 0 : inboard;
+		const end = far ? 49 : 0;
+		const bx = along ? inboard : end;
+		const by = along ? end : inboard;
 		return edgeDepth(rx * 50 + bx, ry * 50 + by, mass) * cornerTaper(inboard);
 	};
 	return [ depthAt(false), depthAt(true) ] as const;
@@ -735,8 +740,12 @@ function genHighwayTerrain(
 	// lane opening running across that end. `markExits` holds that tile open for the whole opening,
 	// so a mass reaching under one leaves a one- or two-tile slot to walk instead of a room. Which
 	// end of the opening bounds it is the side of the room the mass grows from.
-	const laneBound = (lane: readonly number[], lowSide: boolean) =>
-		lane.length === 0 ? Infinity : lowSide ? Math.min(...lane) - 1 : 48 - Math.max(...lane);
+	const laneBound = (lane: readonly number[], lowSide: boolean) => {
+		if (lane.length === 0) {
+			return Infinity;
+		}
+		return lowSide ? Math.min(...lane) - 1 : 48 - Math.max(...lane);
+	};
 	// `genLaneExit` seats an opening it rolls itself clear of these masses, but a room inherits its
 	// openings from whichever neighbour was generated first, and that one was seated against the
 	// neighbour's masses. Clip to the opening this room actually got, releasing over a few tiles so
@@ -1272,9 +1281,7 @@ function regenOpenings(
 	for (const [ yy, row ] of grid.entries()) {
 		for (const [ xx, cell ] of row.entries()) {
 			const prior = old.get(xx, yy);
-			terrain.set(xx, yy, prior === C.TERRAIN_MASK_WALL
-				? cell.wall ? C.TERRAIN_MASK_WALL : 0
-				: prior);
+			terrain.set(xx, yy, prior === C.TERRAIN_MASK_WALL && !cell.wall ? 0 : prior);
 		}
 	}
 	return terrain;

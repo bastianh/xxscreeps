@@ -121,9 +121,13 @@ function parseProp(name: string, prop: DecorationProp, value: unknown): ParsedPr
 			if (typeof value === 'boolean') {
 				return { value };
 			}
-			return value === 'true' || value === '1' ? { value: true } :
-				value === 'false' || value === '0' ? { value: false } :
-				{ error: `'${name}' is not a boolean` };
+			if (value === 'true' || value === '1') {
+				return { value: true };
+			} else if (value === 'false' || value === '0') {
+				return { value: false };
+			} else {
+				return { error: `'${name}' is not a boolean` };
+			}
 		}
 
 		case 'range': {

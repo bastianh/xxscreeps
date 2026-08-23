@@ -65,9 +65,15 @@ export function registerIntentProcessor<Type extends object, Intent extends stri
 	},
 	process: (receiver: Type, context: ProcessorContext, ...data: Data) => void,
 ): null | IntentDeclaration<Type, Intent, RemapNull<Data>> {
-	const toArray = (constraint: string | string[] | undefined) =>
-		constraint === undefined ? [] :
-		typeof constraint === 'string' ? [ constraint ] : constraint;
+	const toArray = (constraint: string | string[] | undefined) => {
+		if (constraint === undefined) {
+			return [];
+		} else if (typeof constraint === 'string') {
+			return [ constraint ];
+		} else {
+			return constraint;
+		}
+	};
 	intentProcessors.push({
 		constraints: {
 			after: toArray(constraints.after),
