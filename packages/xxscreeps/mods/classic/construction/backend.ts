@@ -49,7 +49,7 @@ hooks.register('route', {
 		const { name, room: roomName, x, y, structureType } = context.request.body;
 		const pos = new RoomPosition(x, y, roomName);
 		const room = await context.shard.loadRoom(pos.roomName);
-		const result = runOneShot(context.backend.world, room, context.shard.time, userId,
+		const result = runOneShot(context.world, room, context.shard.time, userId,
 			() => checkCreateConstructionSite(room, pos, structureType as ConstructibleStructureType, name));
 		if (result === C.OK) {
 			await pushIntentsForRoomNextTick(context.shard, roomName, userId, {

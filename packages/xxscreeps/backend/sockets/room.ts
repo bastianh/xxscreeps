@@ -42,6 +42,8 @@ type RoomState = {
 	room: Room;
 	time: number;
 };
+// Keyed by shard and room together: every shard has a room of any given name, and they are
+// entirely separate subscriptions.
 const globalSubscriptionsByRoom = new Map<string, Promise<{ listen: (fn: RoomListener) => Effect; state: RoomState }>>();
 const invokeSocketHooks = hooks.makeMapped('roomSocket');
 
@@ -50,7 +52,8 @@ const invokeSocketHooks = hooks.makeMapped('roomSocket');
  * updated without any change to the room the listener is invoked with `room` === `undefined`.
  */
 export async function subscribeToRoom(shard: Shard, roomName: string, listener: RoomListener): Promise<Effect> {
-	const task = getOrSet(globalSubscriptionsByRoom, roomName, async () => {
+	const key = `${shard.name}/${roomName}`;
+	const task = getOrSet(globalSubscriptionsByRoom, key, async () => {
 		using disposable = new DisposableStack();
 
 		// Initialize current state
@@ -78,7 +81,7 @@ export async function subscribeToRoom(shard: Shard, roomName: string, listener: 
 		}));
 
 		// Clean up this publisher
-		disposable.defer(() => globalSubscriptionsByRoom.delete(roomName));
+		disposable.defer(() => globalSubscriptionsByRoom.delete(key));
 
 		// Disable pending listen timeout
 		disposable.defer(() => timer.clear());
@@ -111,7 +114,7 @@ export async function subscribeToRoom(shard: Shard, roomName: string, listener: 
 	});
 
 	const { listen, state } = await task;
-	if (task === globalSubscriptionsByRoom.get(roomName)) {
+	if (task === globalSubscriptionsByRoom.get(key)) {
 		listener(state.room, state.time, true);
 		return listen(listener);
 	} else {
@@ -126,12 +129,15 @@ export const roomSubscription: SubscriptionEndpoint = {
 	async subscribe(parameters) {
 		let previous: any;
 		let previousTime = -1;
-		const { shard } = this.context;
 		const seenUsers = new Set<string>();
 		const roomName = parameters.room!;
-		if (!this.context.world.map.getRoomStatus(roomName, true)) {
+		// The client subscribes to rooms and shards which may not exist. Like an unknown room, an
+		// unknown shard goes quiet rather than tearing the socket down.
+		const shardContext = this.context.findShard(parameters.shard);
+		if (!shardContext?.world.map.getRoomStatus(roomName, true)) {
 			return () => {};
 		}
+		const { shard, world } = shardContext;
 
 		// Resolve room socket handlers
 		using disposable = new DisposableStack();
@@ -144,7 +150,7 @@ export const roomSubscription: SubscriptionEndpoint = {
 				// Render current room state
 				room['#initialize']();
 				const visibleUsers = new Set<string>();
-				const dval = didUpdate ? runOneShot(this.context.world, room, time, this.user ?? '0', () => {
+				const dval = didUpdate ? runOneShot(world, room, time, this.user ?? '0', () => {
 					// Render all RoomObjects
 					const objects: Record<string, unknown> = {};
 					for (const object of room['#objects']) {

@@ -44,10 +44,11 @@ hooks.register('subscription', {
 
 	subscribe(params) {
 		const { user, path } = params;
-		const { shard } = this.context;
-		if (this.user === undefined || user !== this.user || path === undefined) {
+		const shardContext = this.context.findShard(params.shard);
+		if (this.user === undefined || user !== this.user || path === undefined || !shardContext) {
 			return () => {};
 		}
+		const { shard } = shardContext;
 		let previous: string | undefined;
 		const check = throttle(() => mustNotReject(async () => {
 			// Load memory and send if updated
@@ -58,7 +59,7 @@ hooks.register('subscription', {
 			}
 		}));
 		// Subscribe to game tick updates
-		const subscription = this.context.shard.channel.listen(() => check.set(config.backend.socketThrottle));
+		const subscription = shard.channel.listen(() => check.set(config.backend.socketThrottle));
 		return () => {
 			subscription();
 			check.clear();
