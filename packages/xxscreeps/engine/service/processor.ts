@@ -1,5 +1,6 @@
 import type { ProcessorRequest } from 'xxscreeps/engine/processor/worker.js';
 import type { Effect } from 'xxscreeps/utility/types.js';
+import { checkShardArgument } from 'xxscreeps/config/arguments.js';
 import { config } from 'xxscreeps/config/index.js';
 import { consumeSet, consumeSortedSet, consumeSortedSetMembers } from 'xxscreeps/engine/db/async.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
@@ -11,6 +12,7 @@ import { clamp } from 'xxscreeps/utility/utility.js';
 import { handleInterruptSignal } from './signal.js';
 import { checkIsEntry, getServiceChannel } from './index.js';
 
+const shardName = checkShardArgument();
 const isEntry = checkIsEntry();
 const log = isEntry || config.processor.log
 	? (message: string) => process.stderr.write(message)
@@ -30,7 +32,7 @@ using signal = handleInterruptSignal(() => {
 
 // Connect to main & storage
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using shard = await Shard.connect(db, shardName);
 await using disposable = new AsyncDisposableStack();
 const world = await shard.loadWorld();
 const { terrainBlob } = world;
@@ -65,7 +67,8 @@ const workers = await Fn.pipe(
 	Fn.range(processorCount),
 	$$ => Fn.mapAwait($$, async () => {
 		const client = disposable.adopt(
-			await negotiateResponderClient<ProcessorRequest, unknown>('xxscreeps/engine/processor/worker.js', singleThreaded),
+			await negotiateResponderClient<ProcessorRequest, unknown>(
+				'xxscreeps/engine/processor/worker.js', singleThreaded, [ '--shard', shardName ]),
 			client => {
 				client.close();
 				return client.wait();
