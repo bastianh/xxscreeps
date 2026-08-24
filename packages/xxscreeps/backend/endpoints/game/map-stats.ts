@@ -33,8 +33,8 @@ export const MapStatsEndpoint: Endpoint = {
 		// TODO: A room status blob that doesn't change every tick would be good
 		const rooms = [ ...Fn.filter(await Promise.all(Fn.map(roomNames, async roomName => {
 			// The client spams requests for rooms that don't exist
-			if (context.backend.world.map.getRoomStatus(roomName, true)) {
-				return context.backend.shard.loadRoom(roomName, undefined, true);
+			if (context.world.map.getRoomStatus(roomName, true)) {
+				return context.shard.loadRoom(roomName, undefined, true);
 			}
 		}))) ];
 
@@ -61,7 +61,7 @@ export const MapStatsEndpoint: Endpoint = {
 		// Send it off
 		return {
 			ok: 1,
-			gameTime: context.backend.shard.time,
+			gameTime: context.shard.time,
 			stats,
 			users,
 			...payload.response,
