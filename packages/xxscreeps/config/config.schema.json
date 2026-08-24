@@ -135,7 +135,12 @@
       "properties": {
         "bucket": {
           "default": 10000,
-          "description": "CPU bucket size per user",
+          "description": "CPU bucket size per user. Each shard holds a bucket of this size.",
+          "type": "number"
+        },
+        "limit": {
+          "default": 100,
+          "description": "CPU allotted to a user each tick, on each shard. This is `Game.cpu.limit`, and the rate at which that shard's bucket refills.",
           "type": "number"
         },
         "memoryLimit": {

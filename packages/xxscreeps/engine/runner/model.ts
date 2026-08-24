@@ -1,5 +1,6 @@
 import type { Shard } from 'xxscreeps/engine/db/index.js';
 import type { RunnerPlayerEvalPayload, RunnerPlayerIntent, TickUsageResult } from 'xxscreeps/engine/runner/index.js';
+import { config } from 'xxscreeps/config/index.js';
 import { Channel } from 'xxscreeps/engine/db/channel.js';
 import { tickSpeed } from 'xxscreeps/engine/service/tick.js';
 import { acquireTimeout } from 'xxscreeps/utility/utility.js';
@@ -65,3 +66,22 @@ export async function requestRunnerEval(shard: Shard, userId: string, expr: stri
 
 export const runnerUsersSetKey = (time: number) =>
 	`tick${time % 2}/runnerUsers`;
+
+// The bucket lives with the shard's persistent data rather than in the runner's memory, so that
+// restarting a runner -- or migrating a player's sandbox to another one -- doesn't hand out a full
+// bucket. It belongs to the shard: a user gets one per shard they run on.
+const userBucketKey = (userId: string) => `user/${userId}/bucket`;
+
+export async function loadUserBucket(shard: Shard, userId: string) {
+	const stored = await shard.data.get(userBucketKey(userId));
+	const bucket = stored === null ? NaN : Number(stored);
+	return Number.isFinite(bucket) ? bucket : config.runner.cpu.bucket;
+}
+
+export function saveUserBucket(shard: Shard, userId: string, bucket: number) {
+	return shard.data.set(userBucketKey(userId), String(bucket));
+}
+
+export function deleteUserBucket(shard: Shard, userId: string) {
+	return shard.data.vDel(userBucketKey(userId));
+}
