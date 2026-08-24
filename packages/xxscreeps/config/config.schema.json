@@ -111,7 +111,7 @@
     "ProcessorConfig": {
       "properties": {
         "concurrency": {
-          "description": "Total number of processor tasks to run at a time. The default is the number of CPU cores (including hyper-threaded) + 1",
+          "description": "Total number of processor tasks to run at a time. The default is the number of CPU cores available to this process (including hyper-threaded, respecting CPU affinity) + 1",
           "type": "number"
         },
         "intentAbandonTimeout": {
@@ -131,7 +131,12 @@
       "properties": {
         "bucket": {
           "default": 10000,
-          "description": "CPU bucket size per user",
+          "description": "CPU bucket size per user. Each shard holds a bucket of this size.",
+          "type": "number"
+        },
+        "limit": {
+          "default": 100,
+          "description": "CPU allotted to a user each tick, on each shard. This is `Game.cpu.limit`, and the rate at which that shard's bucket refills.",
           "type": "number"
         },
         "memoryLimit": {
@@ -150,7 +155,7 @@
     "RunnerConfig": {
       "properties": {
         "concurrency": {
-          "description": "Total number of run tasks to run at a time. The default is the number of CPU cores (including hyper-threaded) + 1",
+          "description": "Total number of run tasks to run at a time. The default is the number of CPU cores available to this process (including hyper-threaded, respecting CPU affinity) + 1",
           "type": "number"
         },
         "cpu": {
