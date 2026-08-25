@@ -19,6 +19,7 @@ import * as Badge from 'xxscreeps/engine/db/user/badge.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { updateUserRoomRelationships, userToIntentRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
+import { deleteUserBucket } from 'xxscreeps/engine/runner/model.js';
 import * as Id from 'xxscreeps/engine/schema/id.js';
 import { getServiceChannel } from 'xxscreeps/engine/service/index.js';
 import { mappedPrimitiveComparator, primitiveComparator } from 'xxscreeps/functional/comparator.js';
@@ -42,15 +43,41 @@ import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
 // Also a side-effect import: registers the `User.remove` hook for owned decorations.
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
 import { deleteUserMemoryBlob, loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
+import { acquireWith } from 'xxscreeps/utility/async.js';
 import * as C from 'xxscreeps:mods/constants';
 
 import 'xxscreeps:mods/game';
 
+// `--shard <name>` may appear anywhere in the command line, so it's pulled out before the
+// positional arguments are read. Commands which touch a world act on the named shard; commands
+// which touch an account act on every shard, since an account spans all of them.
+const { args, shardName } = function() {
+	const args = process.argv.slice(2);
+	const index = args.indexOf('--shard');
+	if (index === -1) {
+		return { args, shardName: config.shards[0]!.name };
+	}
+	const shardName = args[index + 1];
+	if (shardName === undefined) {
+		usage();
+	}
+	return { args: [ ...args.slice(0, index), ...args.slice(index + 2) ], shardName };
+}();
+
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using disposable = new AsyncDisposableStack();
+const shards = await acquireWith(
+	resource => disposable.use(resource),
+	...Fn.map(config.shards, info => Shard.connect(db, info.name)));
+const shard = shards.find(candidate => candidate.name === shardName) ?? function(): never {
+	// This runs before the command dispatch below, so it reports like `usage()` rather than throwing
+	// a stack trace at the operator.
+	process.stderr.write(`Unknown shard: ${shardName}. Configured: ${[ ...Fn.map(shards, shard => shard.name) ].join(', ')}\n`);
+	process.exit(2);
+}();
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
-const save = () => Promise.all([ db.save(), shard.save() ]);
+const save = () => Promise.all([ db.save(), ...Fn.map(shards, shard => shard.save()) ]);
 
 async function pauseTick(count: number) {
 	const serviceChannel = getServiceChannel(shard);
@@ -104,7 +131,8 @@ async function userShow(who: string) {
 		db.data.hGetAll(User.infoKey(id)),
 		User.findProvidersForUser(db, id),
 		db.data.sMembers(Code.branchManifestKey(id)),
-		loadUserMemoryBlob(shard, id),
+		// Memory is per-shard, so it's reported per-shard
+		Fn.mapAwait(shards, async shard => [ shard.name, await loadUserMemoryBlob(shard, id) ] as const),
 	]);
 	const providerList = Object.entries(providers).map(([ provider, value ]) => `${provider}=${value}`);
 	out(`id            ${id}`);
@@ -116,7 +144,9 @@ async function userShow(who: string) {
 	out(`badge         ${info.badge === undefined ? 'none' : 'set'}`);
 	out(`providers     ${providerList.length > 0 ? providerList.join(', ') : '(none)'}`);
 	out(`code branches ${branches.length > 0 ? branches.join(', ') : '(none)'}`);
-	out(`memory        ${memory === null ? 'none' : `${memory.length} bytes`}`);
+	for (const [ name, blob ] of memory) {
+		out(`memory        ${name}: ${blob === null ? 'none' : `${blob.length} bytes`}`);
+	}
 }
 
 async function userCreate(name: string, email?: string) {
@@ -134,9 +164,12 @@ async function userCreate(name: string, email?: string) {
 
 async function userRemove(who: string) {
 	const id = await resolveUserId(who);
+	// A user account spans every shard, so its per-shard state goes with it wherever it lives --
+	// not just on the shard this invocation happens to have selected.
 	await Promise.all([
 		User.remove(db, id),
-		deleteUserMemoryBlob(shard, id),
+		...Fn.map(shards, shard => deleteUserMemoryBlob(shard, id)),
+		...Fn.map(shards, shard => deleteUserBucket(shard, id)),
 	]);
 	await save();
 	out(`Removed user ${who} (${id}).`);
@@ -419,7 +452,11 @@ async function botSpawn(userId: string, roomName: string, coords?: string) {
 }
 
 function usage(): never {
-	process.stderr.write(`Usage:
+	process.stderr.write(`Usage: xxscreeps manage [--shard <name>] <noun> <verb> ...
+
+  --shard picks the world that \`game\` and \`bot add --spawn\` act on; it defaults to the first
+  configured shard. \`user\` and \`decoration\` verbs act on the account, across every shard.
+
 	game pause
 	game pause-tick [count]
 	game unpause
@@ -442,7 +479,7 @@ function usage(): never {
 	process.exit(2);
 }
 
-const [ noun, verb, ...rest ] = process.argv.slice(2);
+const [ noun, verb, ...rest ] = args;
 try {
 	switch (`${noun} ${verb}`) {
 		case 'game pause': await getServiceChannel(shard).publish({ type: 'pause' }); break;

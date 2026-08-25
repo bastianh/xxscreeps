@@ -11,7 +11,7 @@ import * as RoomSchema from 'xxscreeps/engine/db/room.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { publishRunnerIntentsForRooms } from 'xxscreeps/engine/processor/model.js';
-import { getConsoleChannel } from 'xxscreeps/engine/runner/model.js';
+import { getConsoleChannel, loadUserBucket, saveUserBucket } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { acquireWith, mustNotReject } from 'xxscreeps/utility/async.js';
 import { acquireHookEffects } from 'xxscreeps/utility/hook.js';
@@ -34,7 +34,6 @@ const acquireConnectors = function(invoke) {
 		} ] as const;
 	};
 }(hooks.makeMapped('runnerConnector'));
-const kCPU = 100;
 
 const initializeRunner = hooks.makeMapped('runnerWorker');
 /** @internal */
@@ -74,7 +73,7 @@ export class PlayerInstance {
 	readonly world;
 	readonly userId;
 	readonly username;
-	private bucket = config.runner.cpu.bucket;
+	private bucket;
 	private branchName;
 	private cleanup!: Effect;
 	private connectors!: typeof acquireConnectors extends (...args: any[]) =>
@@ -98,7 +97,9 @@ export class PlayerInstance {
 		userId: string,
 		username: string,
 		branchName: string | null,
+		bucket: number,
 	) {
+		this.bucket = bucket;
 		this.shard = shard;
 		this.world = world;
 		this.channel = channel;
@@ -147,12 +148,14 @@ export class PlayerInstance {
 	static async create(runner: RunnerWorker, world: World, userId: string) {
 		// Connect to channel, load initial user data
 		const { shard } = runner;
-		const [ channel, codeChannel, userInfo ] = await Promise.all([
+		const [ channel, codeChannel, userInfo, bucket ] = await Promise.all([
 			runnerUserChannel(shard, userId).subscribe(),
 			Code.userCodeChannel(shard.db, userId).subscribe(),
 			shard.db.data.hmGet(User.infoKey(userId), [ 'branch', 'username' ]),
+			loadUserBucket(shard, userId),
 		]);
-		const instance = new PlayerInstance(shard, world, channel, codeChannel, userId, userInfo.username!, userInfo.branch ?? null);
+		const instance = new PlayerInstance(
+			shard, world, channel, codeChannel, userId, userInfo.username!, userInfo.branch ?? null, bucket);
 		try {
 			[ instance.cleanup, instance.connectors ] = await acquireConnectors(instance, runner);
 			return instance;
@@ -205,7 +208,7 @@ export class PlayerInstance {
 					eval: this.consoleEval.splice(0),
 					cpu: {
 						bucket,
-						limit: kCPU,
+						limit: config.runner.cpu.limit,
 						tickLimit: Math.min(config.runner.cpu.tickLimit, bucket),
 					},
 					time,
@@ -256,8 +259,11 @@ export class PlayerInstance {
 		if (result?.result === 'success') {
 			const { payload } = result;
 			const tickCpu = payload.usage.cpu ?? NaN;
-			this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - tickCpu + kCPU);
+			this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - tickCpu + config.runner.cpu.limit);
 			await Promise.all([
+				// Persist the bucket, so that a runner restart doesn't refill it
+				saveUserBucket(this.shard, this.userId, this.bucket),
+
 				// Publish intent blobs
 				publishRunnerIntentsForRooms(this.shard, this.userId, time, intentRooms, payload.intentPayloads),
 
@@ -283,8 +289,9 @@ export class PlayerInstance {
 			const tasks: Promise<void>[] = [];
 			if (result) {
 				// Deduct CPU limit in case of severe failure
-				this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - config.runner.cpu.tickLimit) + kCPU;
-				tasks.push(this.usageChannel.publish({ cpu: kCPU }));
+				this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - config.runner.cpu.tickLimit + config.runner.cpu.limit);
+				tasks.push(saveUserBucket(this.shard, this.userId, this.bucket));
+				tasks.push(this.usageChannel.publish({ cpu: config.runner.cpu.limit }));
 
 				if (result.result === 'disposed') {
 					tasks.push(this.consoleChannel.publish(JSON.stringify([ {

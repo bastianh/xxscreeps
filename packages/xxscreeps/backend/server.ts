@@ -17,11 +17,30 @@ import 'xxscreeps:mods/backend';
 import 'xxscreeps:mods/game';
 import 'xxscreeps:mods/processor';
 
+/**
+ * The shard a request addressed, or `undefined` when it didn't name one. The client passes it as a
+ * query parameter on reads and inside the payload on writes.
+ */
+function shardNameForRequest(context: Koa.ParameterizedContext<State, Context>) {
+	const query = context.query.shard;
+	if (typeof query === 'string') {
+		return query;
+	}
+	const body: unknown = context.request.body;
+	if (typeof body === 'object' && body !== null && 'shard' in body && typeof body.shard === 'string') {
+		return body.shard;
+	}
+}
+
 initializeGameEnvironment();
 
 // Initialize services
 await using backendContext = await BackendContext.connect();
-hooks.makeIterated('backendReady')(backendContext.db, backendContext.shard);
+// nb: Fires once per shard. Anything a mod sets up here is per-shard state.
+const backendReady = hooks.makeIterated('backendReady');
+for (const { shard } of backendContext.shards.values()) {
+	backendReady(backendContext.db, shard);
+}
 const koa = new Koa<State, Context>();
 const router = new Router<State, Context>();
 
@@ -62,12 +81,26 @@ koa.use(async (context, next) => {
 koa.use((context, next) => {
 	context.backend = backendContext;
 	context.db = backendContext.db;
-	context.shard = backendContext.shard;
 	return next();
 });
 koa.use(bodyParser({
 	jsonLimit: '8mb',
 }));
+// Resolve the shard this request addressed. Runs after `bodyParser` because a POST names its shard
+// in the body, where the client puts it for `console`, `memory`, `map-stats` and friends.
+koa.use((context, next) => {
+	const name = shardNameForRequest(context);
+	const shard = backendContext.findShard(name);
+	if (shard === undefined) {
+		context.status = 400;
+		context.body = { error: `Unknown shard: ${name!}` };
+		return;
+	}
+	context.shard = shard.shard;
+	context.world = shard.world;
+	context.accessibleRooms = shard.accessibleRooms;
+	return next();
+});
 koa.use(authentication());
 hooks.makeIterated('middleware')(koa, router);
 koa.use(router.routes());

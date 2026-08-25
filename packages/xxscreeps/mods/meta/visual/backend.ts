@@ -39,10 +39,11 @@ hooks.register('subscription', {
 	async subscribe(params) {
 		using disposable = new DisposableStack();
 		const { user } = params;
-		const { shard } = this.context;
-		if (this.user == null || user !== this.user) {
+		const shardContext = this.context.findShard(params.shard);
+		if (this.user == null || user !== this.user || !shardContext) {
 			return () => {};
 		}
+		const { shard } = shardContext;
 
 		let lastTime = shard.time;
 		const check = throttle(() => mustNotReject(async () => {

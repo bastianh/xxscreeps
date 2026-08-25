@@ -1,4 +1,5 @@
 import type { ServiceMessage } from './index.js';
+import { checkShardArgument } from 'xxscreeps/config/arguments.js';
 import { config } from 'xxscreeps/config/index.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { Mutex } from 'xxscreeps/engine/db/mutex.js';
@@ -15,7 +16,7 @@ import 'xxscreeps:mods/main';
 
 checkIsEntry();
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using shard = await Shard.connect(db, checkShardArgument());
 await using disposable = new AsyncDisposableStack();
 
 // Open channels

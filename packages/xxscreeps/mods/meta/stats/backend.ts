@@ -46,7 +46,7 @@ hooks.register('route', {
 		if (!isStatInterval(interval)) {
 			return;
 		}
-		const { backend, db, shard } = context;
+		const { db, shard, world } = context;
 
 		// Load request data
 		const now = Date.now();
@@ -54,7 +54,7 @@ hooks.register('route', {
 			// Room & owner info
 			async function() {
 				const room =
-					backend.world.map.getRoomStatus(roomName, true)
+					world.map.getRoomStatus(roomName, true)
 						? await shard.loadRoom(roomName, undefined, true)
 						: undefined;
 				if (room !== undefined) {

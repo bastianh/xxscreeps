@@ -156,7 +156,7 @@ hooks.register('route', {
 
 		// Check room eligibility
 		const room = await context.shard.loadRoom(roomName);
-		runOneShot(context.backend.world, room, context.shard.time, userId, () => {
+		runOneShot(context.world, room, context.shard.time, userId, () => {
 			// Check room eligibility
 			if (!room.controller || room.controller.reservation || room.controller.owner) {
 				throw new Error('Room is owned');

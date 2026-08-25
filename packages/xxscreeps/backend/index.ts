@@ -3,6 +3,7 @@ import type { JSONSchemaType } from 'ajv';
 import type Koa from 'koa';
 import type { RouterContext } from 'koa-router';
 import type { Database, Shard } from 'xxscreeps/engine/db/index.js';
+import type { World } from 'xxscreeps/game/map.js';
 import type { RoomObject } from 'xxscreeps/game/object.js';
 import type { Implementation } from 'xxscreeps/utility/types.js';
 import type { Context, State } from 'xxscreeps:backend';
@@ -16,7 +17,11 @@ declare module 'xxscreeps:backend' {
 	interface Context {
 		backend: BackendContext;
 		db: Database;
+		// Resolved from the request's `shard`, defaulting to the first configured shard. A route
+		// which isn't shard-scoped simply never reads these.
 		shard: Shard;
+		world: World;
+		accessibleRooms: ReadonlySet<string>;
 		request: RequestType;
 	}
 }

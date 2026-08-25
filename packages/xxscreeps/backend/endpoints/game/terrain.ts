@@ -12,7 +12,9 @@ const cache = new Map<string, {
 }>();
 
 function getTerrainPayload(world: World, roomName: string) {
-	const cached = cache.get(roomName);
+	// Rooms of the same name exist on every shard, and `world.name` is the shard's
+	const key = `${world.name}/${roomName}`;
+	const cached = cache.get(key);
 	if (cached) {
 		return cached;
 	}
@@ -32,7 +34,7 @@ function getTerrainPayload(world: World, roomName: string) {
 		terrain: terrainString,
 		type: 'terrain' as const,
 	};
-	cache.set(roomName, payload);
+	cache.set(key, payload);
 	return payload;
 }
 
@@ -52,7 +54,7 @@ hooks.register('route', {
 	path: '/api/game/room-terrain',
 
 	execute: makeValidatedQueryRoute(roomTerrainRequestSchema, context => {
-		const terrain = getTerrainPayload(context.backend.world, context.request.query.room);
+		const terrain = getTerrainPayload(context.world, context.request.query.room);
 		if (terrain) {
 			context.set('ETag', makeEtag(terrain.terrain));
 			return { ok: 1, terrain: [ terrain ] };
@@ -80,7 +82,7 @@ hooks.register('route', {
 		ok: 1,
 		rooms: Fn.pipe(
 			context.request.body.rooms,
-			$$ => Fn.map($$, roomQuery => getTerrainPayload(context.backend.world, roomQuery)),
+			$$ => Fn.map($$, roomQuery => getTerrainPayload(context.world, roomQuery)),
 			$$ => Fn.filter($$),
 			$$ => [ ...$$ ]),
 	})),

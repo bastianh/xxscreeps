@@ -1,5 +1,6 @@
 import type { Effect } from 'xxscreeps/utility/types.js';
 import * as Timers from 'node:timers/promises';
+import { checkShardArgument } from 'xxscreeps/config/arguments.js';
 import { config } from 'xxscreeps/config/index.js';
 import { loadTerrain } from 'xxscreeps/driver/pathfinder/pathfinder.js';
 import { bootstrapSandbox } from 'xxscreeps/driver/sandbox/index.js';
@@ -35,7 +36,7 @@ using _signal = handleInterruptSignal(() => {
 
 // Connect to main & storage
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using shard = await Shard.connect(db, checkShardArgument());
 using disposable = new DisposableStack();
 const runnerSubscription = disposable.adopt(
 	await getRunnerChannel(shard).subscribe(),

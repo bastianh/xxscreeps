@@ -1,4 +1,19 @@
 import { ArgumentParser } from 'argparse';
+import { config } from './index.js';
+
+/**
+ * Resolves the shard a service instance attaches to, defaulting to the first configured shard.
+ *
+ * Unlike `checkArguments` this tolerates arguments belonging to someone else: in single-threaded
+ * mode the service entry points are imported into the launcher's process, where `process.argv`
+ * holds the launcher's own flags.
+ */
+export function checkShardArgument() {
+	const parser = new ArgumentParser({ add_help: false });
+	parser.add_argument('--shard', { dest: 'shard', nargs: '?', type: 'str' });
+	const [ argv ] = parser.parse_known_args() as [ { shard: string | null } ];
+	return argv.shard ?? config.shards[0]!.name;
+}
 
 export function checkArguments<Type extends {
 	argv?: true;
