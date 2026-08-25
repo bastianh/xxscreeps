@@ -43,6 +43,7 @@ import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
 // Also a side-effect import: registers the `User.remove` hook for owned decorations.
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
 import { deleteUserMemoryBlob, loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
+import { create as createPortal } from 'xxscreeps/mods/portal/portal.js';
 import { acquireWith } from 'xxscreeps/utility/async.js';
 import * as C from 'xxscreeps:mods/constants';
 
@@ -451,6 +452,50 @@ async function botSpawn(userId: string, roomName: string, coords?: string) {
 	out(`Placed spawn at ${spawnPos.x},${spawnPos.y} in ${roomName} (tick ${time}).`);
 }
 
+async function portalAdd(roomName: string, coords: string, destination: string) {
+	const [ xx = NaN, yy = NaN ] = coords.split(',').map(Number);
+	if (!Number.isInteger(xx) || !Number.isInteger(yy) || xx < 1 || xx > 48 || yy < 1 || yy > 48) {
+		throw new Error(`Invalid position: ${coords}`);
+	}
+	const [ destShard, destRoom ] = destination.split('/');
+	if (destShard === undefined || destRoom === undefined) {
+		throw new Error(`Invalid destination: ${destination}`);
+	}
+	if (!shards.some(candidate => candidate.name === destShard)) {
+		throw new Error(`Unknown destination shard: ${destShard}`);
+	}
+	// nb: The destination room lives on another shard and is deliberately not checked. A portal may
+	// point at a room which doesn't exist yet, and arrivals are dropped until it does.
+
+	// Hold the game mutex so no tick runs while we mutate the room, as `bot add --spawn` does.
+	await using gameMutex = await Mutex.connect('game', shard.data, shard.pubsub);
+	await using lock = await gameMutex.acquire();
+	const time = Number(await shard.data.get('time'));
+	const world = await shard.loadWorld();
+	if (!world.map.getRoomStatus(roomName, true)) {
+		throw new Error(`No such room: ${roomName}`);
+	}
+	// A portal in a wall can never be stepped on, so refuse rather than place one nothing can reach.
+	const terrain = world.map.getRoomTerrain(roomName);
+	if (terrain.get(xx, yy) === C.TERRAIN_MASK_WALL) {
+		throw new Error(`Position is a wall: ${xx},${yy}`);
+	}
+	const room = await shard.loadRoom(roomName, time);
+	const state = new GameState(world, time + 1, [ room ]);
+	runWithState(state, () => {
+		room['#insertObject'](createPortal(new RoomPosition(xx, yy, roomName), { shard: destShard, room: destRoom }));
+		room['#flushObjects'](state);
+	});
+
+	// Both double-buffer slots, so the room reads correctly whichever tick processes it next.
+	await Promise.all([
+		shard.saveRoom(roomName, time, room),
+		shard.saveRoom(roomName, time + 1, room),
+	]);
+	await save();
+	out(`Placed portal at ${xx},${yy} in ${roomName} on ${shard.name} to ${destShard}/${destRoom} (tick ${time}).`);
+}
+
 function usage(): never {
 	process.stderr.write(`Usage: xxscreeps manage [--shard <name>] <noun> <verb> ...
 
@@ -472,6 +517,7 @@ function usage(): never {
   decoration grant   <name|id> <decorationId>
   decoration revoke  <name|id> <itemId>
   decoration cleanup [name|id]
+  portal add  <room> <x,y> <shard>/<room>
   bot  add    <name> <codeDir> [branch] [--spawn <room> [x,y]]
   bot  update <name|id> <codeDir> [branch]
   bot  remove <name|id>
@@ -502,6 +548,10 @@ try {
 		case 'decoration grant': if (rest[0] === undefined || rest[1] === undefined) usage(); await decorationGrant(rest[0], rest[1]); break;
 		case 'decoration revoke': if (rest[0] === undefined || rest[1] === undefined) usage(); await decorationRevoke(rest[0], rest[1]); break;
 		case 'decoration cleanup': await decorationCleanup(rest[0]); break;
+		case 'portal add':
+			if (rest[0] === undefined || rest[1] === undefined || rest[2] === undefined) usage();
+			await portalAdd(rest[0], rest[1], rest[2]);
+			break;
 		case 'bot add': {
 			const spawnIndex = rest.indexOf('--spawn');
 			const args = spawnIndex === -1 ? rest : rest.slice(0, spawnIndex);

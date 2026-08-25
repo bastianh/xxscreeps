@@ -4,6 +4,7 @@ import { create as createCreep } from 'xxscreeps/mods/classic/creep/creep.js';
 import { assert, describe, simulate, test } from 'xxscreeps/test/index.js';
 import * as C from 'xxscreeps:mods/constants';
 import { StructurePortal, create as createPortal } from './portal.js';
+import { findArrivalPosition } from './processor.js';
 
 const findPortal = (room: Room) =>
 	room.find(C.FIND_STRUCTURES).find(object => object instanceof StructurePortal);
@@ -75,6 +76,46 @@ describe('mods/portal', () => {
 			const portal = findPortal(room);
 			assert.ok(portal, 'portal should exist');
 			assert.deepStrictEqual(portal.destination, { shard: 'shard1', room: 'W5N5' });
+		});
+	}));
+
+	test('arrivals land beside a portal leading back', () => simulate({
+		W1N1: room => {
+			room['#insertObject'](createPortal(
+				new RoomPosition(25, 25, 'W1N1'),
+				{ shard: 'shard1', room: 'W5N5' },
+			));
+		},
+	})(async ({ peekRoom }) => {
+		await peekRoom('W1N1', room => {
+			const pos = findArrivalPosition(room, '100');
+			assert.ok(pos, 'an arrival position should be found');
+			assert.ok(pos.getRangeTo(25, 25) === 1, `expected a square beside the portal, got ${pos.x},${pos.y}`);
+		});
+	}));
+
+	test('arrivals do not stack on occupied squares', () => simulate({
+		W1N1: room => {
+			room['#insertObject'](createPortal(
+				new RoomPosition(25, 25, 'W1N1'),
+				{ shard: 'shard1', room: 'W5N5' },
+			));
+			// Wall the portal in with creeps, so every square it would prefer is taken
+			let index = 0;
+			for (let yy = 24; yy <= 26; ++yy) {
+				for (let xx = 24; xx <= 26; ++xx) {
+					if (xx !== 25 || yy !== 25) {
+						room['#insertObject'](createCreep(
+							new RoomPosition(xx, yy, 'W1N1'), [ C.MOVE ], `squatter${index++}`, '100'));
+					}
+				}
+			}
+		},
+	})(async ({ peekRoom }) => {
+		await peekRoom('W1N1', room => {
+			const pos = findArrivalPosition(room, '100');
+			assert.ok(pos, 'a crowded portal should still yield somewhere to stand');
+			assert.ok(pos.getRangeTo(25, 25) > 1, `arrival stacked on an occupied square at ${pos.x},${pos.y}`);
 		});
 	}));
 

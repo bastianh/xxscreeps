@@ -15,6 +15,21 @@ export async function *consumeSet(keyval: KeyValProvider, key: string) {
 }
 
 /**
+ * Returns an async generator which pops every element off the front of a list and yields it. Unlike
+ * reading the whole range and deleting the key, an element pushed while this is draining is either
+ * yielded or left in place -- never dropped.
+ */
+export async function *consumeList(keyval: KeyValProvider, key: string) {
+	while (true) {
+		const next = await keyval.lPop(key);
+		if (next === null) {
+			return;
+		}
+		yield next;
+	}
+}
+
+/**
  * Removes a single member from the given set from those members which exist in `members`. Returns
  * the index of the remove member or `null` if none were found.
  */
