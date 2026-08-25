@@ -8,6 +8,11 @@ import * as Responder from 'xxscreeps/engine/db/storage/local/responder.js';
 
 const trampoline = () => new URL(import.meta.resolve('xxscreeps/xxscreeps.js'));
 
+/** `argv` is narrowed from `any[]`, since these are always service command-line arguments. */
+interface ServiceWorkerOptions extends Omit<WorkerOptions, 'argv'> {
+	argv?: string[] | undefined;
+}
+
 export class Worker extends NodeWorker {
 	constructor(filename: string | URL, options: WorkerOptions = {}) {
 		super(filename, {
@@ -20,7 +25,7 @@ export class Worker extends NodeWorker {
 	// The worker boots through the `xxscreeps.js` trampoline, which shifts the module specifier off
 	// `process.argv` before handing over. Anything passed as `argv` lands behind it, where the
 	// service's own `checkArguments` will find it.
-	static create(module: string, options: Omit<WorkerOptions, 'argv'> & { argv?: string[] | undefined } = {}) {
+	static create(module: string, options: ServiceWorkerOptions = {}) {
 		const url = import.meta.resolve(module);
 		return new Worker(trampoline(), {
 			...options,
