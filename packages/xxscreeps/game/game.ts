@@ -201,6 +201,13 @@ export interface CPU {
 	limit: number;
 
 	/**
+	 * An object with the CPU limits for each shard with the shard names as keys.
+	 * @public
+	 * @see https://docs.screeps.com/api/#Game.cpu.shardLimits
+	 */
+	shardLimits: Record<string, number>;
+
+	/**
 	 * An amount of available CPU time at the current game tick. Usually it is higher than
 	 * `Game.cpu.limit`. [Learn more](https://docs.screeps.com/cpu-limit.html)
 	 * @public

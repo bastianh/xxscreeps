@@ -144,6 +144,11 @@
           "description": "Memory limit, in megabytes. The actual memory limit as reported by the isolate will be higher, since it accounts for shared terrain data.\n\nThis option does nothing when `sandbox: unsafe` is set.",
           "type": "number"
         },
+        "shardLimitsCooldown": {
+          "default": 12,
+          "description": "How long a user must wait, in hours, before changing how their CPU is split across shards again. `0` removes the wait, which is usually what a private server wants.",
+          "type": "number"
+        },
         "tickLimit": {
           "default": 500,
           "description": "Maximum amount of time in milliseconds that a user's runtime may run for.",

@@ -19,6 +19,8 @@ export interface TickPayload {
 	cpu: {
 		bucket: number;
 		limit: number;
+		/** The whole account's CPU split, of which `limit` is this shard's entry */
+		shardLimits: Record<string, number>;
 		tickLimit: number;
 	};
 	roomBlobs: Readonly<Uint8Array>[];

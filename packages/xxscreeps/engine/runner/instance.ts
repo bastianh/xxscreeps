@@ -3,6 +3,7 @@ import type { Sandbox } from 'xxscreeps/driver/sandbox/index.js';
 import type { SubscriptionFor } from 'xxscreeps/engine/db/channel.js';
 import type { Shard } from 'xxscreeps/engine/db/index.js';
 import type { InitializationPayload, RunnerPlayerIntent, RunnerWorker, TickPayload, TickResult } from 'xxscreeps/engine/runner/index.js';
+import type { CpuShardLimitsChannel } from 'xxscreeps/engine/runner/model.js';
 import type { World } from 'xxscreeps/game/map.js';
 import type { Effect } from 'xxscreeps/utility/types.js';
 import { config } from 'xxscreeps/config/index.js';
@@ -11,7 +12,7 @@ import * as RoomSchema from 'xxscreeps/engine/db/room.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { publishRunnerIntentsForRooms } from 'xxscreeps/engine/processor/model.js';
-import { getConsoleChannel, loadUserBucket, saveUserBucket } from 'xxscreeps/engine/runner/model.js';
+import { cpuShardLimitsChannel, getConsoleChannel, loadShardLimits, loadUserBucket, saveUserBucket } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { acquireWith, mustNotReject } from 'xxscreeps/utility/async.js';
 import { acquireHookEffects } from 'xxscreeps/utility/hook.js';
@@ -74,6 +75,9 @@ export class PlayerInstance {
 	readonly userId;
 	readonly username;
 	private bucket;
+	// How the account's CPU is split across shards. This shard's slice is `Game.cpu.limit` and the
+	// rate its bucket refills at, so a shard given half the CPU also recovers half as fast.
+	private shardLimits;
 	private branchName;
 	private cleanup!: Effect;
 	private connectors!: typeof acquireConnectors extends (...args: any[]) =>
@@ -83,6 +87,7 @@ export class PlayerInstance {
 	private stale = false;
 	private readonly channel;
 	private readonly codeChannel;
+	private readonly cpuChannel;
 	private readonly consoleEval: Exclude<TickPayload['eval'], undefined> = [];
 	private readonly consoleChannel;
 	private readonly intents: RunnerPlayerIntent[] = [];
@@ -94,16 +99,20 @@ export class PlayerInstance {
 		world: World,
 		channel: SubscriptionFor<RunnerUserChannel>,
 		codeChannel: SubscriptionFor<Code.UserCodeChannel>,
+		cpuChannel: SubscriptionFor<CpuShardLimitsChannel>,
 		userId: string,
 		username: string,
 		branchName: string | null,
 		bucket: number,
+		shardLimits: Record<string, number>,
 	) {
 		this.bucket = bucket;
+		this.shardLimits = shardLimits;
 		this.shard = shard;
 		this.world = world;
 		this.channel = channel;
 		this.codeChannel = codeChannel;
+		this.cpuChannel = cpuChannel;
 		this.userId = userId;
 		this.username = username;
 		this.branchName = branchName;
@@ -126,6 +135,11 @@ export class PlayerInstance {
 			}
 		});
 
+		// Listen for a changed CPU split. Every shard's runner holds a copy, so they all reload.
+		cpuChannel.listen(() => mustNotReject(async () => {
+			this.shardLimits = await loadShardLimits(this.shard.db, this.userId);
+		}));
+
 		// Listen for code updates
 		codeChannel.listen(message => {
 			switch (message.type) {
@@ -145,17 +159,33 @@ export class PlayerInstance {
 		});
 	}
 
+	/**
+	 * A shard the player has allocated no CPU to doesn't run their code at all. Their objects still
+	 * process -- they just get no orders. Running anyway would hand the sandbox a tick limit of zero
+	 * and time it out every tick.
+	 */
+	get hasCpu() {
+		return this.limit > 0;
+	}
+
+	private get limit() {
+		return this.shardLimits[this.shard.name] ?? config.runner.cpu.limit;
+	}
+
 	static async create(runner: RunnerWorker, world: World, userId: string) {
 		// Connect to channel, load initial user data
 		const { shard } = runner;
-		const [ channel, codeChannel, userInfo, bucket ] = await Promise.all([
+		const [ channel, codeChannel, cpuChannel, userInfo, bucket, limits ] = await Promise.all([
 			runnerUserChannel(shard, userId).subscribe(),
 			Code.userCodeChannel(shard.db, userId).subscribe(),
+			cpuShardLimitsChannel(shard.db, userId).subscribe(),
 			shard.db.data.hmGet(User.infoKey(userId), [ 'branch', 'username' ]),
 			loadUserBucket(shard, userId),
+			loadShardLimits(shard.db, userId),
 		]);
 		const instance = new PlayerInstance(
-			shard, world, channel, codeChannel, userId, userInfo.username!, userInfo.branch ?? null, bucket);
+			shard, world, channel, codeChannel, cpuChannel, userId, userInfo.username!,
+			userInfo.branch ?? null, bucket, limits);
 		try {
 			[ instance.cleanup, instance.connectors ] = await acquireConnectors(instance, runner);
 			return instance;
@@ -168,6 +198,7 @@ export class PlayerInstance {
 	disconnect() {
 		this.channel.disconnect();
 		this.codeChannel.disconnect();
+		this.cpuChannel.disconnect();
 		mustNotReject(this.sandbox?.dispose());
 		this.cleanup();
 	}
@@ -208,7 +239,8 @@ export class PlayerInstance {
 					eval: this.consoleEval.splice(0),
 					cpu: {
 						bucket,
-						limit: config.runner.cpu.limit,
+						limit: this.limit,
+						shardLimits: this.shardLimits,
 						tickLimit: Math.min(config.runner.cpu.tickLimit, bucket),
 					},
 					time,
@@ -259,7 +291,7 @@ export class PlayerInstance {
 		if (result?.result === 'success') {
 			const { payload } = result;
 			const tickCpu = payload.usage.cpu ?? NaN;
-			this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - tickCpu + config.runner.cpu.limit);
+			this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - tickCpu + this.limit);
 			await Promise.all([
 				// Persist the bucket, so that a runner restart doesn't refill it
 				saveUserBucket(this.shard, this.userId, this.bucket),
@@ -289,9 +321,9 @@ export class PlayerInstance {
 			const tasks: Promise<void>[] = [];
 			if (result) {
 				// Deduct CPU limit in case of severe failure
-				this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - config.runner.cpu.tickLimit + config.runner.cpu.limit);
+				this.bucket = clamp(0, config.runner.cpu.bucket, this.bucket - config.runner.cpu.tickLimit + this.limit);
 				tasks.push(saveUserBucket(this.shard, this.userId, this.bucket));
-				tasks.push(this.usageChannel.publish({ cpu: config.runner.cpu.limit }));
+				tasks.push(this.usageChannel.publish({ cpu: this.limit }));
 
 				if (result.result === 'disposed') {
 					tasks.push(this.consoleChannel.publish(JSON.stringify([ {
