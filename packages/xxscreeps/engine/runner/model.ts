@@ -1,8 +1,10 @@
-import type { Shard } from 'xxscreeps/engine/db/index.js';
+import type { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import type { RunnerPlayerEvalPayload, RunnerPlayerIntent, TickUsageResult } from 'xxscreeps/engine/runner/index.js';
 import { config } from 'xxscreeps/config/index.js';
 import { Channel } from 'xxscreeps/engine/db/channel.js';
+import * as User from 'xxscreeps/engine/db/user/index.js';
 import { tickSpeed } from 'xxscreeps/engine/service/tick.js';
+import { Fn } from 'xxscreeps/functional/fn.js';
 import { acquireTimeout } from 'xxscreeps/utility/utility.js';
 
 export function getConsoleChannel(shard: Shard, user: string) {
@@ -85,3 +87,77 @@ export function saveUserBucket(shard: Shard, userId: string, bucket: number) {
 export function deleteUserBucket(shard: Shard, userId: string) {
 	return shard.data.vDel(userBucketKey(userId));
 }
+
+// A user's CPU allowance is an account-level number, and how they split it across shards is too,
+// so both live in the global database rather than any one shard's. The split doubles as each
+// shard's bucket refill rate: half the CPU means the bucket fills half as fast.
+const cpuShardsKey = (userId: string) => `user/${userId}/cpuShards`;
+const kCpuChangedField = 'cpuShardsChanged';
+
+export async function loadAccountCpu(db: Database, userId: string) {
+	const stored = await db.data.hGet(User.infoKey(userId), 'cpu');
+	const cpu = stored === null ? NaN : Number(stored);
+	return Number.isFinite(cpu) ? cpu : config.runner.cpu.limit;
+}
+
+/**
+ * How much CPU a user gets per tick on each configured shard. An unallocated account is split
+ * evenly, with the remainder going to the first shard so the parts always add up to the whole.
+ */
+export async function loadShardLimits(db: Database, userId: string) {
+	const [ total, stored ] = await Promise.all([
+		loadAccountCpu(db, userId),
+		db.data.hGetAll(cpuShardsKey(userId)),
+	]);
+	const names = config.shards.map(shard => shard.name);
+	const allocated = Fn.every(names, name => stored[name] !== undefined);
+	if (allocated) {
+		return Fn.fromEntries(Fn.map(names, name => [ name, Number(stored[name]) ] as const));
+	}
+	const share = Math.floor(total / names.length);
+	return Fn.fromEntries(Fn.map(names, (name, index) =>
+		[ name, index === 0 ? total - share * (names.length - 1) : share ] as const));
+}
+
+/**
+ * Rejects a split which doesn't add up to the account's CPU, or which arrives before the cooldown
+ * is up. Returns `null` on success, or the reason it was refused.
+ */
+export async function saveShardLimits(db: Database, userId: string, limits: Record<string, number>) {
+	const names = config.shards.map(shard => shard.name);
+	const values = names.map(name => limits[name]);
+	if (values.some(value => value === undefined || !Number.isInteger(value) || value < 0)) {
+		return 'invalid';
+	}
+	const total = await loadAccountCpu(db, userId);
+	if (Fn.accumulate(values as number[]) !== total) {
+		return 'total mismatch';
+	}
+	const cooldown = config.runner.cpu.shardLimitsCooldown * 3600000;
+	if (cooldown > 0) {
+		const changed = Number(await db.data.hGet(User.infoKey(userId), kCpuChangedField));
+		if (Number.isFinite(changed) && Date.now() - changed < cooldown) {
+			return 'busy';
+		}
+	}
+	const key = cpuShardsKey(userId);
+	await Promise.all([
+		...Fn.map(names, name => db.data.hSet(key, name, limits[name]!)),
+		db.data.hSet(User.infoKey(userId), kCpuChangedField, Date.now()),
+	]);
+	await cpuShardLimitsChannel(db, userId).publish(null);
+	return null;
+}
+
+export function deleteShardLimits(db: Database, userId: string) {
+	return db.data.vDel(cpuShardsKey(userId));
+}
+
+/**
+ * Announces a changed split. It rides the global pubsub rather than a shard's, because every
+ * shard's runner holds a copy and they all have to drop it at once.
+ */
+export type CpuShardLimitsChannel = Channel<null>;
+
+export const cpuShardLimitsChannel = (db: Database, userId: string): CpuShardLimitsChannel =>
+	new Channel(db.pubsub, `user/${userId}/cpuShards`);

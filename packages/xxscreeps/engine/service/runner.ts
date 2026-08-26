@@ -111,7 +111,7 @@ loop: for await (const message of Async.breakable(runnerMessages, breaker => bre
 						]);
 						if (intentRooms.length === 0) {
 							await shard.scratch.sRem('activeUsers', [ userId ]);
-						} else {
+						} else if (instance.hasCpu) {
 							log(`+${instance.username}, `);
 							await instance.run(time, visibleRooms, intentRooms);
 							log(`-${instance.username}, `);
