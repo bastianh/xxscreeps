@@ -39,6 +39,7 @@ import 'xxscreeps/mods/meta/messages/model.js';
 import { create as createSpawn } from 'xxscreeps/mods/classic/spawn/spawn.js';
 import { createRuin } from 'xxscreeps/mods/classic/structure/ruin.js';
 import { OwnedStructure } from 'xxscreeps/mods/classic/structure/structure.js';
+import { deleteSegments as deleteInterShardSegments } from 'xxscreeps/mods/intershardMemory/model.js';
 import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
 // Also a side-effect import: registers the `User.remove` hook for owned decorations.
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
@@ -197,6 +198,7 @@ async function userRemove(who: string) {
 		...Fn.map(shards, shard => deleteUserMemoryBlob(shard, id)),
 		...Fn.map(shards, shard => deleteUserBucket(shard, id)),
 		deleteShardLimits(db, id),
+		deleteInterShardSegments(db, id),
 	]);
 	await save();
 	out(`Removed user ${who} (${id}).`);
