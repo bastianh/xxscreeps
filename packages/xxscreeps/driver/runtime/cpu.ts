@@ -7,10 +7,16 @@ import { hooks } from 'xxscreeps/game/index.js';
 // the last call survives: the runtime answers immediately, so an earlier request never took effect.
 let request: Record<string, number> | undefined;
 
+/** @internal */
+export function flushShardLimitsRequest() {
+	const value = request;
+	request = undefined;
+	return value;
+}
+
 hooks.register('runtimeConnector', {
 	send(result) {
-		result.shardLimitsRequest = request;
-		request = undefined;
+		result.shardLimitsRequest = flushShardLimitsRequest();
 	},
 });
 
