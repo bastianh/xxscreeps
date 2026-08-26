@@ -38,6 +38,7 @@ import * as ControllerProc from 'xxscreeps/mods/classic/controller/processor.js'
 import { create as createSpawn } from 'xxscreeps/mods/classic/spawn/spawn.js';
 import { createRuin } from 'xxscreeps/mods/classic/structure/ruin.js';
 import { OwnedStructure } from 'xxscreeps/mods/classic/structure/structure.js';
+import { deleteSegments as deleteInterShardSegments } from 'xxscreeps/mods/intershardMemory/model.js';
 import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
 import { loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
@@ -172,7 +173,7 @@ async function userRemove(who: string) {
 		await deleteUserBucket(target, id);
 		await target.save();
 	});
-	await Promise.all([ User.remove(db, id), deleteShardLimits(db, id) ]);
+	await Promise.all([ User.remove(db, id), deleteShardLimits(db, id), deleteInterShardSegments(db, id) ]);
 	await save();
 	out(`Removed user ${who} (${id}).`);
 }
