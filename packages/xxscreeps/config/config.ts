@@ -214,6 +214,13 @@ export interface RunnerCPUConfig {
 	limit?: number;
 
 	/**
+	 * How long a user must wait, in hours, before changing how their CPU is split across shards
+	 * again. `0` removes the wait, which is usually what a private server wants.
+	 * @default 12
+	 */
+	shardLimitsCooldown?: number;
+
+	/**
 	 * Memory limit, in megabytes. The actual memory limit as reported by the isolate will be
 	 * higher, since it accounts for shared terrain data.
 	 *
@@ -304,6 +311,7 @@ export const defaults = {
 		cpu: {
 			bucket: 10000,
 			limit: 100,
+			shardLimitsCooldown: 12,
 			memoryLimit: 256,
 			tickLimit: 500,
 		},

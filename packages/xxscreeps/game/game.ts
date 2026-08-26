@@ -201,12 +201,29 @@ export interface CPU {
 	limit: number;
 
 	/**
+	 * An object with the CPU limits for each shard with the shard names as keys.
+	 * @public
+	 * @see https://docs.screeps.com/api/#Game.cpu.shardLimits
+	 */
+	shardLimits: Record<string, number>;
+
+	/**
 	 * An amount of available CPU time at the current game tick. Usually it is higher than
 	 * `Game.cpu.limit`. [Learn more](https://docs.screeps.com/cpu-limit.html)
 	 * @public
 	 * @see https://docs.screeps.com/api/#Game.cpu.tickLimit
 	 */
 	tickLimit: number;
+
+	/**
+	 * Allocate CPU limits to different shards. Total amount of CPU should remain equal to
+	 * `Game.cpu.shardLimits`. This method can be used only once per 12 hours.
+	 * @param limits An object with the new CPU limits for each shard with the shard names as keys.
+	 * @returns One of the following codes: `OK`, `ERR_BUSY`, `ERR_INVALID_ARGS`
+	 * @public
+	 * @see https://docs.screeps.com/api/#Game.cpu.setShardLimits
+	 */
+	setShardLimits: (limits: Record<string, number>) => number;
 
 	/**
 	 * Get amount of CPU time used from the beginning of the current game tick. Always returns 0 in

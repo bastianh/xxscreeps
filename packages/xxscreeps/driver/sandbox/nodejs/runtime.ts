@@ -4,6 +4,7 @@ import type { InitializationPayload, TickPayload } from 'xxscreeps/engine/runner
 import type { CPU } from 'xxscreeps/game/game.js';
 import * as assert from 'node:assert/strict';
 import * as process from 'node:process';
+import { BaseCPU } from 'xxscreeps/driver/runtime/cpu.js';
 import { initialize as runtimeInitialize, tick as runtimeTick } from 'xxscreeps/driver/runtime/index.js';
 import { hooks } from 'xxscreeps/game/index.js';
 
@@ -15,16 +16,11 @@ declare module 'xxscreeps/engine/runner/index.js' {
 	}
 }
 
-class NodejsCPU implements CPU {
-	bucket;
-	limit;
-	tickLimit;
+class NodejsCPU extends BaseCPU implements CPU {
 	readonly #startTime;
 
 	constructor(data: TickPayload) {
-		this.bucket = data.cpu.bucket;
-		this.limit = data.cpu.limit;
-		this.tickLimit = data.cpu.tickLimit;
+		super(data);
 		this.#startTime = process.hrtime.bigint();
 	}
 
