@@ -23,6 +23,7 @@ import * as Badge from 'xxscreeps/engine/db/user/badge.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { updateUserRoomRelationships, userToIntentRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
+import { cpuShardLimitsChannel, deleteShardLimits, deleteUserBucket, loadAccountCpu, loadShardLimits } from 'xxscreeps/engine/runner/model.js';
 import * as Id from 'xxscreeps/engine/schema/id.js';
 import { getServiceChannel } from 'xxscreeps/engine/service/index.js';
 import { mappedPrimitiveComparator, primitiveComparator } from 'xxscreeps/functional/comparator.js';
@@ -124,6 +125,31 @@ async function userShow(who: string) {
 	out(`memory        ${memory === null ? 'none' : `${memory.length} bytes`}`);
 }
 
+async function userCpu(who: string, amount?: string) {
+	const id = await resolveUserId(who);
+	if (amount === undefined) {
+		const [ total, limits ] = await Promise.all([ loadAccountCpu(db, id), loadShardLimits(db, id) ]);
+		out(`cpu           ${total}`);
+		for (const [ name, limit ] of Object.entries(limits)) {
+			out(`  ${name.padEnd(12)}${limit}`);
+		}
+		return;
+	}
+	const cpu = Number(amount);
+	if (!Number.isInteger(cpu) || cpu < 0) {
+		throw new Error(`Invalid CPU: ${amount}`);
+	}
+	// The old split was checked against the old total, so it no longer adds up; drop it and let the
+	// even default apply until the user divides it again.
+	await Promise.all([
+		db.data.hSet(User.infoKey(id), 'cpu', cpu),
+		deleteShardLimits(db, id),
+	]);
+	await cpuShardLimitsChannel(db, id).publish(null);
+	await save();
+	out(`Set ${who} (${id}) to ${cpu} CPU, split evenly across shards.`);
+}
+
 async function userCreate(name: string, email?: string) {
 	if (!User.checkUsername(name)) {
 		throw new Error(`Invalid username: ${name}`);
@@ -143,9 +169,10 @@ async function userRemove(who: string) {
 	await Fn.mapAwait(config.shards, async info => {
 		await using target = await Shard.connectWith(db, info);
 		await User.removeFromShard(target, id);
+		await deleteUserBucket(target, id);
 		await target.save();
 	});
-	await User.remove(db, id);
+	await Promise.all([ User.remove(db, id), deleteShardLimits(db, id) ]);
 	await save();
 	out(`Removed user ${who} (${id}).`);
 }
@@ -483,6 +510,7 @@ function usage(): never {
   user list
   user show     <name|id>
   user create   <name> [email]
+  user cpu      <name|id> [amount]
   user remove   <name|id>
   user badge    <name|id> <json|file>
   user password <name|id> <password>
@@ -515,6 +543,7 @@ try {
 		case 'user list': await userList(); break;
 		case 'user show': if (rest[0] === undefined) usage(); await userShow(rest[0]); break;
 		case 'user create': if (rest[0] === undefined) usage(); await userCreate(rest[0], rest[1]); break;
+		case 'user cpu': if (rest[0] === undefined) usage(); await userCpu(rest[0], rest[1]); break;
 		case 'user remove': if (rest[0] === undefined) usage(); await userRemove(rest[0]); break;
 		case 'user badge': if (rest[0] === undefined || rest[1] === undefined) usage(); await userBadge(rest[0], rest[1]); break;
 		case 'user password': if (rest[0] === undefined || rest[1] === undefined) usage(); await userPassword(rest[0], rest[1]); break;

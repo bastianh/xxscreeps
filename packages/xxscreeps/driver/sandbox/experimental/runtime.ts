@@ -1,21 +1,17 @@
 import type { Compiler } from 'xxscreeps/driver/runtime/index.js';
 import type { InitializationPayload, TickPayload } from 'xxscreeps/engine/runner/index.js';
 import type { CPU } from 'xxscreeps/game/game.js';
+import { BaseCPU } from 'xxscreeps/driver/runtime/cpu.js';
 import { initialize as runtimeInitialize, tick } from 'xxscreeps/driver/runtime/index.js';
 import { hooks } from 'xxscreeps/game/index.js';
 
 export { tick } from 'xxscreeps/driver/runtime/index.js';
 
-class ExperimentalCPU implements CPU {
-	bucket;
-	limit;
-	tickLimit;
+class ExperimentalCPU extends BaseCPU implements CPU {
 	readonly #startTime;
 
 	constructor(data: TickPayload) {
-		this.bucket = data.cpu.bucket;
-		this.limit = data.cpu.limit;
-		this.tickLimit = data.cpu.tickLimit;
+		super(data);
 		this.#startTime = Date.now();
 	}
 
