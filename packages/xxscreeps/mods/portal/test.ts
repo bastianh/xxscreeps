@@ -1,7 +1,10 @@
 import type { Room } from 'xxscreeps/game/room/index.js';
+import { writeRoomObject } from 'xxscreeps/engine/db/room.js';
+import { pushIntentsForRoomNextTick } from 'xxscreeps/engine/processor/model.js';
 import { RoomPosition } from 'xxscreeps/game/position.js';
 import { create as createCreep } from 'xxscreeps/mods/classic/creep/creep.js';
 import { assert, describe, simulate, test } from 'xxscreeps/test/index.js';
+import { typedArrayToString } from 'xxscreeps/utility/string.js';
 import * as C from 'xxscreeps:mods/constants';
 import { StructurePortal, create as createPortal } from './portal.js';
 import { findArrivalPosition } from './processor.js';
@@ -94,28 +97,68 @@ describe('mods/portal', () => {
 		});
 	}));
 
-	test('arrivals do not stack on occupied squares', () => simulate({
+	test('arrivals do not stack on an occupied square', () => simulate({
+		// No portal leading back, so placement falls through to the open-square search
+		W1N1: () => {},
+	})(async ({ peekRoom }) => {
+		await peekRoom('W1N1', room => {
+			const first = findArrivalPosition(room, '100');
+			assert.ok(first, 'an arrival position should be found');
+			// Stand on it, exactly as the previous arrival would
+			room['#insertObject'](createCreep(first, [ C.MOVE ], 'squatter', '100'));
+			room['#flushObjects'](null);
+			const second = findArrivalPosition(room, '100');
+			assert.ok(second, 'a second arrival should still find somewhere to stand');
+			assert.ok(!second.isEqualTo(first), `second arrival stacked on ${second.x},${second.y}`);
+		});
+	}));
+
+	test('a creep through a same-shard portal is indexed where it stands', () => simulate({
 		W1N1: room => {
 			room['#insertObject'](createPortal(
 				new RoomPosition(25, 25, 'W1N1'),
-				{ shard: 'shard1', room: 'W5N5' },
+				new RoomPosition(20, 20, 'W2N2'),
 			));
-			// Wall the portal in with creeps, so every square it would prefer is taken
-			let index = 0;
-			for (let yy = 24; yy <= 26; ++yy) {
-				for (let xx = 24; xx <= 26; ++xx) {
-					if (xx !== 25 || yy !== 25) {
-						room['#insertObject'](createCreep(
-							new RoomPosition(xx, yy, 'W1N1'), [ C.MOVE ], `squatter${index++}`, '100'));
-					}
-				}
-			}
+			room['#insertObject'](createCreep(
+				new RoomPosition(25, 25, 'W1N1'), [ C.MOVE ], 'traveler', '100'));
 		},
-	})(async ({ peekRoom }) => {
+	})(async ({ peekRoom, tick }) => {
+		await tick();
+		await peekRoom('W2N2', room => {
+			const creep = room.find(C.FIND_CREEPS).find(object => object.name === 'traveler');
+			assert.ok(creep, 'creep should have arrived');
+			assert.ok(creep.pos.isEqualTo(20, 20));
+			// The spatial index is what collision and `lookAt` read; it must agree with `pos`
+			const here = room['#lookAt'](new RoomPosition(20, 20, 'W2N2'));
+			assert.ok([ ...here ].includes(creep), 'creep is not indexed at the position it occupies');
+		});
+	}));
+
+	test('successive arrivals from another shard land on different squares', () => simulate({
+		W1N1: () => {},
+	})(async ({ shard, tick, peekRoom }) => {
+		const arrive = async (name: string) => {
+			// Built inside the game context, the way a departing shard would have written it
+			const payload = await peekRoom('W1N1', (room, game) => {
+				const creep = createCreep(new RoomPosition(25, 25, 'W1N1'), [ C.MOVE ], name, '100');
+				creep['#ageTime'] = game.time + 1000;
+				return typedArrayToString(writeRoomObject(creep));
+			});
+			await pushIntentsForRoomNextTick(shard, 'W1N1', '100', {
+				internal: true,
+				local: { importFromShard: [ [ payload, 0, '100' ] ] },
+			});
+			// The intent is queued for the next tick, and the queue for that tick is built by the one
+			// after, so the arrival lands two ticks out
+			await tick(2);
+		};
+		await arrive('first');
+		await arrive('second');
 		await peekRoom('W1N1', room => {
-			const pos = findArrivalPosition(room, '100');
-			assert.ok(pos, 'a crowded portal should still yield somewhere to stand');
-			assert.ok(pos.getRangeTo(25, 25) > 1, `arrival stacked on an occupied square at ${pos.x},${pos.y}`);
+			const arrivals = room.find(C.FIND_CREEPS).filter(creep => creep.name === 'first' || creep.name === 'second');
+			assert.strictEqual(arrivals.length, 2, 'both arrivals should be in the room');
+			assert.ok(!arrivals[0]!.pos.isEqualTo(arrivals[1]!.pos),
+				`arrivals stacked at ${arrivals[0]!.pos.x},${arrivals[0]!.pos.y}`);
 		});
 	}));
 

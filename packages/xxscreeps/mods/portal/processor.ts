@@ -58,10 +58,16 @@ const intents = registerIntentProcessor(Room, 'importFromShard', { internal: tru
 	}
 	const pos = findArrivalPosition(room, userId);
 	if (pos === undefined) {
-		// The room is full. The creep is gone either way; dropping it beats corrupting the room.
+		// The creep is gone either way; dropping it beats corrupting the room, but it should be
+		// visible that it happened.
+		console.error(`Dropped an arrival in ${room.name}: nowhere to stand`);
 		return;
 	}
+	// `#posId` is a stored mirror of `pos` -- a schema union over the same int32 -- and the room's
+	// spatial index is keyed on it. Deserializing gives them the departure position, so both have to
+	// move together, or the creep renders here and collides somewhere else.
 	object.pos = pos;
+	object['#posId'] = pos['#id'];
 	room['#insertObject'](object);
 	context.didUpdate();
 });
