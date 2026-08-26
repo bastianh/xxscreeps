@@ -5,3 +5,9 @@ declare module 'xxscreeps:mods/game' {
 	interface RoomObjects { portal: StructurePortal }
 	interface RoomSchema { portal: PortalRoomSchema }
 }
+
+declare module 'xxscreeps:mods/processor' {
+	import type { PortalIntents } from 'xxscreeps/mods/portal/processor.js';
+
+	interface Intent { portal: PortalIntents }
+}

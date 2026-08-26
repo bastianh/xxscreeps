@@ -443,10 +443,14 @@ interface Teleportable extends RoomObject {
 	'#actionLog': ActionLog;
 }
 
-// Move a creep to another room. Used by border crossing and by structures that transport creeps
-// across rooms (e.g. portals). The creep is removed from its current room and an import-payload
-// intent is queued for the destination room.
-export function teleportCreep(creep: Teleportable, next: RoomPosition, context: ProcessorContext) {
+/**
+ * Removes a creep from its room and returns its serialized form, ready to be inserted wherever it
+ * is going. `next` is where the creep believes it is headed; it lands in the payload and the exit
+ * event, though a destination which places arrivals itself may put it somewhere else.
+ *
+ * Returns `undefined` if the creep has already left its room this tick.
+ */
+export function detachCreep(creep: Teleportable, next: RoomPosition, context: ProcessorContext) {
 	if (creep.room === undefined as never) {
 		return;
 	}
@@ -471,8 +475,18 @@ export function teleportCreep(creep: Teleportable, next: RoomPosition, context: 
 	creep['#actionLog'] = [];
 	const importPayload = writeRoomObject(creep as AnyRoomObject);
 	creep.pos = oldPos;
-	context.sendRoomIntent(next.roomName, 'import', typedArrayToString(importPayload));
 	context.didUpdate();
+	return typedArrayToString(importPayload);
+}
+
+// Move a creep to another room on this shard. Used by border crossing and by structures that
+// transport creeps across rooms (e.g. portals). The creep is removed from its current room and an
+// import-payload intent is queued for the destination room.
+export function teleportCreep(creep: Teleportable, next: RoomPosition, context: ProcessorContext) {
+	const payload = detachCreep(creep, next, context);
+	if (payload !== undefined) {
+		context.sendRoomIntent(next.roomName, 'import', payload);
+	}
 }
 
 registerObjectTickProcessor(Tombstone, (tombstone, context) => {
