@@ -21,6 +21,8 @@ export interface TickPayload {
 		limit: number;
 		/** The whole account's CPU split, of which `limit` is this shard's entry */
 		shardLimits: Record<string, number>;
+		/** Milliseconds before the split may be changed again; `0` when it is free */
+		shardLimitsCooldown: number;
 		tickLimit: number;
 	};
 	roomBlobs: Readonly<Uint8Array>[];
@@ -44,6 +46,8 @@ export interface TickResult {
 		};
 	}[];
 	intentPayloads: Record<string, RoomIntentPayload>;
+	/** A new CPU split requested by `Game.cpu.setShardLimits` */
+	shardLimitsRequest?: Record<string, number> | undefined;
 	usage: TickUsageResult;
 }
 

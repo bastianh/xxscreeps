@@ -149,6 +149,13 @@ export async function saveShardLimits(db: Database, userId: string, limits: Reco
 	return null;
 }
 
+/** When the split was last changed, so the runtime can answer `ERR_BUSY` without a round trip. */
+export async function loadShardLimitsChanged(db: Database, userId: string) {
+	const stored = await db.data.hGet(User.infoKey(userId), kCpuChangedField);
+	const changed = stored === null ? NaN : Number(stored);
+	return Number.isFinite(changed) ? changed : 0;
+}
+
 export function deleteShardLimits(db: Database, userId: string) {
 	return db.data.vDel(cpuShardsKey(userId));
 }

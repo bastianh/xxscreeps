@@ -12,7 +12,7 @@ import * as RoomSchema from 'xxscreeps/engine/db/room.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { publishRunnerIntentsForRooms } from 'xxscreeps/engine/processor/model.js';
-import { cpuShardLimitsChannel, getConsoleChannel, loadShardLimits, loadUserBucket, saveUserBucket } from 'xxscreeps/engine/runner/model.js';
+import { cpuShardLimitsChannel, getConsoleChannel, loadShardLimits, loadShardLimitsChanged, loadUserBucket, saveShardLimits, saveUserBucket } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { acquireWith, mustNotReject } from 'xxscreeps/utility/async.js';
 import { acquireHookEffects } from 'xxscreeps/utility/hook.js';
@@ -78,6 +78,7 @@ export class PlayerInstance {
 	// How the account's CPU is split across shards. This shard's slice is `Game.cpu.limit` and the
 	// rate its bucket refills at, so a shard given half the CPU also recovers half as fast.
 	private shardLimits;
+	private shardLimitsChanged;
 	private branchName;
 	private cleanup!: Effect;
 	private connectors!: typeof acquireConnectors extends (...args: any[]) =>
@@ -105,9 +106,11 @@ export class PlayerInstance {
 		branchName: string | null,
 		bucket: number,
 		shardLimits: Record<string, number>,
+		shardLimitsChanged: number,
 	) {
 		this.bucket = bucket;
 		this.shardLimits = shardLimits;
+		this.shardLimitsChanged = shardLimitsChanged;
 		this.shard = shard;
 		this.world = world;
 		this.channel = channel;
@@ -137,7 +140,10 @@ export class PlayerInstance {
 
 		// Listen for a changed CPU split. Every shard's runner holds a copy, so they all reload.
 		cpuChannel.listen(() => mustNotReject(async () => {
-			this.shardLimits = await loadShardLimits(this.shard.db, this.userId);
+			[ this.shardLimits, this.shardLimitsChanged ] = await Promise.all([
+				loadShardLimits(this.shard.db, this.userId),
+				loadShardLimitsChanged(this.shard.db, this.userId),
+			]);
 		}));
 
 		// Listen for code updates
@@ -168,6 +174,12 @@ export class PlayerInstance {
 		return this.limit > 0;
 	}
 
+	/** Milliseconds before `setShardLimits` is allowed again, or `0` when it is free. */
+	private get shardLimitsCooldown() {
+		const cooldown = config.runner.cpu.shardLimitsCooldown * 3600000;
+		return cooldown === 0 ? 0 : Math.max(0, this.shardLimitsChanged + cooldown - Date.now());
+	}
+
 	private get limit() {
 		return this.shardLimits[this.shard.name] ?? config.runner.cpu.limit;
 	}
@@ -175,17 +187,18 @@ export class PlayerInstance {
 	static async create(runner: RunnerWorker, world: World, userId: string) {
 		// Connect to channel, load initial user data
 		const { shard } = runner;
-		const [ channel, codeChannel, cpuChannel, userInfo, bucket, limits ] = await Promise.all([
+		const [ channel, codeChannel, cpuChannel, userInfo, bucket, limits, limitsChanged ] = await Promise.all([
 			runnerUserChannel(shard, userId).subscribe(),
 			Code.userCodeChannel(shard.db, userId).subscribe(),
 			cpuShardLimitsChannel(shard.db, userId).subscribe(),
 			shard.db.data.hmGet(User.infoKey(userId), [ 'branch', 'username' ]),
 			loadUserBucket(shard, userId),
 			loadShardLimits(shard.db, userId),
+			loadShardLimitsChanged(shard.db, userId),
 		]);
 		const instance = new PlayerInstance(
 			shard, world, channel, codeChannel, cpuChannel, userId, userInfo.username!,
-			userInfo.branch ?? null, bucket, limits);
+			userInfo.branch ?? null, bucket, limits, limitsChanged);
 		try {
 			[ instance.cleanup, instance.connectors ] = await acquireConnectors(instance, runner);
 			return instance;
@@ -241,6 +254,7 @@ export class PlayerInstance {
 						bucket,
 						limit: this.limit,
 						shardLimits: this.shardLimits,
+						shardLimitsCooldown: this.shardLimitsCooldown,
 						tickLimit: Math.min(config.runner.cpu.tickLimit, bucket),
 					},
 					time,
@@ -295,6 +309,12 @@ export class PlayerInstance {
 			await Promise.all([
 				// Persist the bucket, so that a runner restart doesn't refill it
 				saveUserBucket(this.shard, this.userId, this.bucket),
+
+				// A new CPU split asked for by `Game.cpu.setShardLimits`. The runtime answered the player
+				// already, having been given everything it needed to; this is where it takes effect, and
+				// the model checks it again because that answer was based on a snapshot.
+				payload.shardLimitsRequest === undefined ? undefined :
+				saveShardLimits(this.shard.db, this.userId, payload.shardLimitsRequest),
 
 				// Publish intent blobs
 				publishRunnerIntentsForRooms(this.shard, this.userId, time, intentRooms, payload.intentPayloads),
