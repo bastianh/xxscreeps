@@ -135,12 +135,22 @@
       "properties": {
         "bucket": {
           "default": 10000,
-          "description": "CPU bucket size per user",
+          "description": "CPU bucket size per user. Each shard holds a bucket of this size.",
+          "type": "number"
+        },
+        "limit": {
+          "default": 100,
+          "description": "CPU allotted to a user each tick, on each shard. This is `Game.cpu.limit`, and the rate at which that shard's bucket refills.",
           "type": "number"
         },
         "memoryLimit": {
           "default": 256,
           "description": "Memory limit, in megabytes. The actual memory limit as reported by the isolate will be higher, since it accounts for shared terrain data.\n\nThis option does nothing when `sandbox: unsafe` is set.",
+          "type": "number"
+        },
+        "shardLimitsCooldown": {
+          "default": 12,
+          "description": "How long a user must wait, in hours, before changing how their CPU is split across shards again. `0` removes the wait, which is usually what a private server wants.",
           "type": "number"
         },
         "tickLimit": {

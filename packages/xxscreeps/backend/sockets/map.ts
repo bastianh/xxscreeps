@@ -13,13 +13,14 @@ export const mapSubscription: SubscriptionEndpoint = {
 
 	async subscribe(parameters) {
 		const roomName = parameters.room!;
-		if (!this.context.accessibleRooms.has(roomName)) {
-			// The client sends subscription requests for rooms that don't exist. Filter those out here to
-			// avoid unneeded subscriptions.
+		const shardContext = this.context.findShard(parameters.shard);
+		if (!shardContext?.accessibleRooms.has(roomName)) {
+			// The client sends subscription requests for rooms and shards that don't exist. Filter those
+			// out here to avoid unneeded subscriptions.
 			return () => {};
 		}
 		let previous = '';
-		return subscribeToRoom(this.context.shard, roomName, (room, time, didUpdate) => {
+		return subscribeToRoom(shardContext.shard, roomName, (room, time, didUpdate) => {
 			if (!didUpdate) {
 				return;
 			}
