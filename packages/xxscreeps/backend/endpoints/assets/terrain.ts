@@ -160,16 +160,22 @@ function register(paths: string[], fn: (shard: Shard, map: GameMap, room: string
 			path,
 
 			async execute(context) {
-				// Fetch PNG from cache, or generate fresh
+				// These routes name their shard in the path, not the query, so the request-wide
+				// resolution doesn't apply. Rooms of the same name exist on every shard, hence the
+				// shard-qualified cache key.
+				const { shard, world } = context.backend.shardFor(context.params.shard);
 				const room = context.params.room!;
-				const data = cache.get(room) ?? await async function() {
-					const payload = await fn(context.shard, context.backend.world.map, room);
+				const key = `${shard.name}/${room}`;
+
+				// Fetch PNG from cache, or generate fresh
+				const data = cache.get(key) ?? await async function() {
+					const payload = await fn(shard, world.map, room);
 					if (payload === null) {
 						return { etag: 'nothing', payload: null };
 					} else {
 						const etag = makeEtag(payload);
 						const data = { etag, payload };
-						cache.set(room, data);
+						cache.set(key, data);
 						return data;
 					}
 				}();

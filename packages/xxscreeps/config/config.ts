@@ -210,10 +210,24 @@ export interface RunnerConfig {
 
 export interface RunnerCPUConfig {
 	/**
-	 * CPU bucket size per user
+	 * CPU bucket size per user. Each shard holds a bucket of this size.
 	 * @default 10000
 	 */
 	bucket?: number;
+
+	/**
+	 * CPU allotted to a user each tick, on each shard. This is `Game.cpu.limit`, and the rate at
+	 * which that shard's bucket refills.
+	 * @default 100
+	 */
+	limit?: number;
+
+	/**
+	 * How long a user must wait, in hours, before changing how their CPU is split across shards
+	 * again. `0` removes the wait, which is usually what a private server wants.
+	 * @default 12
+	 */
+	shardLimitsCooldown?: number;
 
 	/**
 	 * Memory limit, in megabytes. The actual memory limit as reported by the isolate will be
@@ -305,6 +319,8 @@ export const defaults = {
 		concurrency: os.availableParallelism() + 1,
 		cpu: {
 			bucket: 10000,
+			limit: 100,
+			shardLimitsCooldown: 12,
 			memoryLimit: 256,
 			tickLimit: 500,
 		},

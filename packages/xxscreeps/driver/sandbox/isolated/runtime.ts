@@ -2,6 +2,7 @@ import type ivm from 'isolated-vm';
 import type { Compiler, Evaluate, RuntimeModuleNamespace } from 'xxscreeps/driver/runtime/index.js';
 import type { InitializationPayload, TickPayload } from 'xxscreeps/engine/runner/index.js';
 import type { CPU } from 'xxscreeps/game/game.js';
+import { BaseCPU } from 'xxscreeps/driver/runtime/cpu.js';
 import { initialize as runtimeInitialize } from 'xxscreeps/driver/runtime/index.js';
 import { hooks } from 'xxscreeps/game/index.js';
 
@@ -34,16 +35,11 @@ declare module 'xxscreeps/game/game.js' {
 	}
 }
 
-class IsolatedCPU implements CPU {
-	bucket;
-	limit;
-	tickLimit;
+class IsolatedCPU extends BaseCPU implements CPU {
 	readonly #startTime;
 
 	constructor(data: TickPayload) {
-		this.bucket = data.cpu.bucket;
-		this.limit = data.cpu.limit;
-		this.tickLimit = data.cpu.tickLimit;
+		super(data);
 		this.#startTime = isolate.wallTime;
 	}
 

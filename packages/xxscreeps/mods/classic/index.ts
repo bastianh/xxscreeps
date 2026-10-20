@@ -36,6 +36,7 @@ export const manifest: Manifest = {
 		'xxscreeps/mods/mmo/wallstreet',
 
 		'xxscreeps/mods/portal',
+		'xxscreeps/mods/intershardMemory',
 		'xxscreeps/mods/intershardResource',
 	],
 	provides: null,

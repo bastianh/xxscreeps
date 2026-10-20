@@ -17,7 +17,7 @@ hooks.register('route', {
 
 	async execute(context) {
 		const { userId } = context.state;
-		const { map } = context.backend.world;
+		const { map } = context.world;
 		if (userId !== undefined) {
 			const lastRoom = await context.db.data.hGet(User.infoKey(userId), 'lastViewedRoom');
 			if (lastRoom !== null && map.getRoomStatus(lastRoom, true)) {

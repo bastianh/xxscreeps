@@ -1,6 +1,7 @@
 import type { Badge } from './badge.js';
 import type { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import type { MaybePromise } from 'xxscreeps/utility/types.js';
+import { deleteShardLimits, deleteUserBucket } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { makeHookRegistration } from 'xxscreeps/utility/hook.js';
 import { branchManifestKey, buffersKey, saveContent, stringsKey } from './code.js';
@@ -146,6 +147,7 @@ export async function remove(db: Database, userId: string) {
 			db.data.vDel(buffersKey(userId, branchName)),
 			db.data.vDel(stringsKey(userId, branchName)),
 		]),
+		deleteShardLimits(db, userId),
 		...removeHooks(db, userId),
 	]);
 }
@@ -156,7 +158,10 @@ export async function remove(db: Database, userId: string) {
  */
 export async function removeFromShard(shard: Shard, userId: string) {
 	await loadRemoveHandlers();
-	await Promise.all(removeFromShardHooks(shard, userId));
+	await Promise.all([
+		deleteUserBucket(shard, userId),
+		...removeFromShardHooks(shard, userId),
+	]);
 }
 
 export function findProvidersForUser(db: Database, userId: string) {

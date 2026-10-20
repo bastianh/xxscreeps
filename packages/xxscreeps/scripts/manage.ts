@@ -23,6 +23,7 @@ import * as Badge from 'xxscreeps/engine/db/user/badge.js';
 import * as Code from 'xxscreeps/engine/db/user/code.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { updateUserRoomRelationships, userToIntentRoomsSetKey } from 'xxscreeps/engine/processor/model.js';
+import { cpuShardLimitsChannel, deleteShardLimits, loadAccountCpu, loadShardLimits } from 'xxscreeps/engine/runner/model.js';
 import * as Id from 'xxscreeps/engine/schema/id.js';
 import { getServiceChannel } from 'xxscreeps/engine/service/index.js';
 import { mappedPrimitiveComparator, primitiveComparator } from 'xxscreeps/functional/comparator.js';
@@ -40,6 +41,7 @@ import { OwnedStructure } from 'xxscreeps/mods/classic/structure/structure.js';
 import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
 import { loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
+import { create as createPortal } from 'xxscreeps/mods/portal/portal.js';
 import * as C from 'xxscreeps:mods/constants';
 
 import 'xxscreeps:mods/game';
@@ -121,6 +123,31 @@ async function userShow(who: string) {
 	out(`providers     ${providerList.length > 0 ? providerList.join(', ') : '(none)'}`);
 	out(`code branches ${branches.length > 0 ? branches.join(', ') : '(none)'}`);
 	out(`memory        ${memory === null ? 'none' : `${memory.length} bytes`}`);
+}
+
+async function userCpu(who: string, amount?: string) {
+	const id = await resolveUserId(who);
+	if (amount === undefined) {
+		const [ total, limits ] = await Promise.all([ loadAccountCpu(db, id), loadShardLimits(db, id) ]);
+		out(`cpu           ${total}`);
+		for (const [ name, limit ] of Object.entries(limits)) {
+			out(`  ${name.padEnd(12)}${limit}`);
+		}
+		return;
+	}
+	const cpu = Number(amount);
+	if (!Number.isInteger(cpu) || cpu < 0) {
+		throw new Error(`Invalid CPU: ${amount}`);
+	}
+	// The old split was checked against the old total, so it no longer adds up; drop it and let the
+	// even default apply until the user divides it again.
+	await Promise.all([
+		db.data.hSet(User.infoKey(id), 'cpu', cpu),
+		deleteShardLimits(db, id),
+	]);
+	await cpuShardLimitsChannel(db, id).publish(null);
+	await save();
+	out(`Set ${who} (${id}) to ${cpu} CPU, split evenly across shards.`);
 }
 
 async function userCreate(name: string, email?: string) {
@@ -430,6 +457,50 @@ async function botSpawn(userId: string, roomName: string, coords?: string) {
 	out(`Placed spawn at ${spawnPos.x},${spawnPos.y} in ${roomName} (tick ${time}).`);
 }
 
+async function portalAdd(roomName: string, coords: string, destination: string) {
+	const [ xx = NaN, yy = NaN ] = coords.split(',').map(Number);
+	if (!Number.isInteger(xx) || !Number.isInteger(yy) || xx < 1 || xx > 48 || yy < 1 || yy > 48) {
+		throw new Error(`Invalid position: ${coords}`);
+	}
+	const [ destShard, destRoom ] = destination.split('/');
+	if (destShard === undefined || destRoom === undefined) {
+		throw new Error(`Invalid destination: ${destination}`);
+	}
+	if (!config.shards.some(candidate => candidate.name === destShard)) {
+		throw new Error(`Unknown destination shard: ${destShard}`);
+	}
+	// nb: The destination room lives on another shard and is deliberately not checked. A portal may
+	// point at a room which doesn't exist yet, and arrivals are dropped until it does.
+
+	// Hold the game mutex so no tick runs while we mutate the room, as `bot add --spawn` does.
+	await using gameMutex = await Mutex.connect('game', shard.data, shard.pubsub);
+	await using lock = await gameMutex.acquire();
+	const time = Number(await shard.data.get('time'));
+	const world = await shard.loadWorld();
+	if (!world.map.getRoomStatus(roomName, true)) {
+		throw new Error(`No such room: ${roomName}`);
+	}
+	// A portal in a wall can never be stepped on, so refuse rather than place one nothing can reach.
+	const terrain = world.map.getRoomTerrain(roomName);
+	if (terrain.get(xx, yy) === C.TERRAIN_MASK_WALL) {
+		throw new Error(`Position is a wall: ${xx},${yy}`);
+	}
+	const room = await shard.loadRoom(roomName, time);
+	const state = new GameState(world, time, [ room ]);
+	runWithState(state, () => {
+		room['#insertObject'](createPortal(new RoomPosition(xx, yy, roomName), { shard: destShard, room: destRoom }));
+		room['#flushObjects'](state);
+	});
+
+	// Both double-buffer slots, so the room reads correctly whichever tick processes it next.
+	await Promise.all([
+		shard.saveRoom(roomName, time, room),
+		shard.saveRoom(roomName, time + 1, room),
+	]);
+	await save();
+	out(`Placed portal at ${xx},${yy} in ${roomName} on ${shard.name} to ${destShard}/${destRoom} (tick ${time}).`);
+}
+
 function usage(): never {
 	process.stderr.write(`Usage: xxscreeps manage <command> [--shard <name>]
 	game pause
@@ -438,6 +509,7 @@ function usage(): never {
   user list
   user show     <name|id>
   user create   <name> [email]
+  user cpu      <name|id> [amount]
   user remove   <name|id>
   user badge    <name|id> <json|file>
   user password <name|id> <password>
@@ -447,6 +519,7 @@ function usage(): never {
   decoration grant   <name|id> <decorationId>
   decoration revoke  <name|id> <itemId>
   decoration cleanup [name|id]
+  portal add  <room> <x,y> <shard>/<room>
   bot  add    <name> [codeDir [branch]] [--spawn <room> [x,y]]
   bot  update <name|id> <codeDir> [branch]
   bot  remove <name|id>
@@ -469,6 +542,7 @@ try {
 		case 'user list': await userList(); break;
 		case 'user show': if (rest[0] === undefined) usage(); await userShow(rest[0]); break;
 		case 'user create': if (rest[0] === undefined) usage(); await userCreate(rest[0], rest[1]); break;
+		case 'user cpu': if (rest[0] === undefined) usage(); await userCpu(rest[0], rest[1]); break;
 		case 'user remove': if (rest[0] === undefined) usage(); await userRemove(rest[0]); break;
 		case 'user badge': if (rest[0] === undefined || rest[1] === undefined) usage(); await userBadge(rest[0], rest[1]); break;
 		case 'user password': if (rest[0] === undefined || rest[1] === undefined) usage(); await userPassword(rest[0], rest[1]); break;
@@ -478,6 +552,10 @@ try {
 		case 'decoration grant': if (rest[0] === undefined || rest[1] === undefined) usage(); await decorationGrant(rest[0], rest[1]); break;
 		case 'decoration revoke': if (rest[0] === undefined || rest[1] === undefined) usage(); await decorationRevoke(rest[0], rest[1]); break;
 		case 'decoration cleanup': await decorationCleanup(rest[0]); break;
+		case 'portal add':
+			if (rest[0] === undefined || rest[1] === undefined || rest[2] === undefined) usage();
+			await portalAdd(rest[0], rest[1], rest[2]);
+			break;
 		case 'bot add': {
 			if (rest[0] === undefined) usage();
 			const userId = await botSave(rest[0], rest[1] ?? bundledBotDir, rest[2], true);
