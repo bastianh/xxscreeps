@@ -47,7 +47,7 @@ hooks.register('sendUserInfo', async (db, userId, userInfo) => {
 // Owner / level, sign, and safe-mode world-map decorations; these fields live on this mod's room
 // schema.
 hooks.register('mapStats', (context, { rooms, userIds }) => {
-	const { time } = context.backend.shard;
+	const { time } = context.shard;
 	for (const { room, stats } of rooms) {
 		const user = room['#user'];
 		if (user != null) {

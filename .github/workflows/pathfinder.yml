@@ -33,9 +33,6 @@ jobs:
           - runs-on: ubuntu-24.04
             container: alpine:edge
             triplet: x86_64-alpine-linux-musl
-          - runs-on: macos-15-intel
-            platform: darwin
-            triplet: x86_64-apple-darwin
           - runs-on: windows-2025
             platform: windows
             triplet: x86_64-pc-windows
@@ -63,6 +60,7 @@ jobs:
             clang22-extra-tools
             cmake
             compiler-rt
+            jq
             lld22
             llvm22
             ninja-is-really-ninja
@@ -80,6 +78,7 @@ jobs:
           packages: |
             clang-22
             cmake
+            jq
             libboost-all-dev
             libclang-rt-22-dev
             libstdc++-16-dev
@@ -156,9 +155,9 @@ jobs:
 
       # Setup desired nodejs version (except alpine, which will have to deal with what it got)
       - if: matrix.host.container != 'alpine:edge'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       # Setup repository
       - uses: actions/checkout@v5
@@ -184,12 +183,12 @@ jobs:
           export CXX=$(command -v "$CXX")
 
           # Generate PGO instrumentation
-          if node --version | grep -q 'v24' && command -v "$LLVM_PROFDATA" >/dev/null; then
+          if node --version | grep -q 'v26' && command -v "$LLVM_PROFDATA" >/dev/null; then
             PGO_OUT="$PWD/pgo"
             cmake \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_MODULE_PATH="$(pnpm exec auto_js_cmake_include)" \
-              -DNODE_VERSION=24.15.0 \
+              -DNODE_VERSION=26.10.0 \
               -DPGO_OUT="$PGO_OUT" \
               ${ECO_STD:+"-DCMAKE_CXX_STDLIB_MODULES_JSON=${ECO_STD}"} \
               -G Ninja -B build \
@@ -197,7 +196,7 @@ jobs:
             if ninja -C build; then
               pnpm -C ../xxscreeps install '@xxscreeps/pathfinder@workspace:^'
               pnpm -C ../xxscreeps install "@isolated-vm/experimental@$(jq -r .version node_modules/@isolated-vm/experimental/package.json)"
-              npx xxscreeps import
+              npx xxscreeps initialize --preset=steam
               cp screeps/shard0/terrain .
               # classic v8 + isolated-vm module
               node --import xxscreeps/loader ../xxscreeps/dist/driver/pathfinder/profile.js
@@ -220,7 +219,7 @@ jobs:
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_MODULE_PATH="$(pnpm exec auto_js_cmake_include)" \
-            -DNODE_VERSION=24.15.0 \
+            -DNODE_VERSION=26.10.0 \
             ${ECO_STD:+"-DCMAKE_CXX_STDLIB_MODULES_JSON=${ECO_STD}"} \
             ${PGO_OUT:+"-DPGO_IN=${PGO_OUT}"} \
             -G Ninja -B build \
@@ -264,9 +263,6 @@ jobs:
           - runs-on: ubuntu-24.04
             container: alpine:3
             triplet: x86_64-alpine-linux-musl
-          - runs-on: macos-15-intel
-            platform: darwin
-            triplet: x86_64-apple-darwin
           - runs-on: windows-2025
             platform: windows
             triplet: x86_64-pc-windows
@@ -284,15 +280,18 @@ jobs:
         name: Setup Node [Alpine]
         id: musl
         shell: sh
-        run: apk add nodejs npm
+        run: apk add nodejs-current npm
       - if: steps.musl.outcome == 'skipped'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       # Setup
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
+      - if: matrix.host.container == 'alpine:3'
+        run: npm install -g pnpm@11.20.0
+      - if: matrix.host.container != 'alpine:3'
+        uses: pnpm/action-setup@v6
         with:
           cache: true
       - shell: sh
@@ -334,11 +333,8 @@ jobs:
         with:
           # Modern npm version required for nested package OIDC & provenance. This version can be removed when that is
           # standard.
-          node-version: 24
-      - if: matrix.host.container == 'alpine:edge'
-        run: npm install -g pnpm@11.20.0
-      - if: matrix.host.container != 'alpine:edge'
-        uses: pnpm/action-setup@v6
+          node-version: 26
+      - uses: pnpm/action-setup@v6
         with:
           cache: true
       - shell: sh
@@ -381,7 +377,7 @@ jobs:
         working-directory: packages/pathfinder
         shell: sh
         run: |
-          pnpm publish --dry-run --filter . --no-git-checks
+          pnpm publish --dry-run --filter . --ignore-scripts --no-git-checks
           for ii in $(ls npm); do
             pnpm -C "npm/$ii" pack
           done

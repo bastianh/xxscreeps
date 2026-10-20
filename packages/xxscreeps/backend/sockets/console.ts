@@ -5,7 +5,9 @@ import type { TickUsageResult } from 'xxscreeps/engine/runner/index.js';
 import { config } from 'xxscreeps/config/index.js';
 import { kFdStdError, kFdUnescaped, resultPrefix } from 'xxscreeps/driver/runtime/print.js';
 import { getConsoleChannel, runnerUsageChannel } from 'xxscreeps/engine/runner/model.js';
-import { throttle } from 'xxscreeps/utility/utility.js';
+import { Fn } from 'xxscreeps/functional/fn.js';
+import { acquireWith } from 'xxscreeps/utility/async.js';
+import { disposableToEffect, throttle } from 'xxscreeps/utility/utility.js';
 
 function colorize(payload: string) {
 	return String(payload)
@@ -38,11 +40,11 @@ function escape(html: string) {
 const ConsoleSubscription: SubscriptionEndpoint = {
 	pattern: /^user:(?<user>[^/]+)\/console$/,
 
-	subscribe(params) {
+	async subscribe(params) {
 		if (this.user === undefined || params.user !== this.user) {
 			return () => {};
 		}
-		return getConsoleChannel(this.context.shard, params.user).listen(message => {
+		const receive = (message: string) => {
 			type Frame = {
 				error?: never;
 				messages: { log: string[]; results: string[] };
@@ -82,7 +84,14 @@ const ConsoleSubscription: SubscriptionEndpoint = {
 			for (const frame of frames) {
 				this.send(JSON.stringify(frame));
 			}
-		});
+		};
+		// The channel name carries no shard, and the client shows one console, so every shard's output
+		// is merged into it.
+		using disposable = new DisposableStack();
+		await acquireWith(
+			fn => disposable.defer(fn),
+			...Fn.map(this.context.shards.values(), ({ shard }) => getConsoleChannel(shard, params.user!).listen(receive)));
+		return disposableToEffect(disposable.move());
 	},
 };
 
@@ -97,7 +106,10 @@ const UsageSubscription: SubscriptionEndpoint = {
 		const send = throttle(() => {
 			this.send(JSON.stringify(usage));
 		});
-		const subscription = await runnerUsageChannel(this.context.shard, params.user).listen(message => {
+		// nb: Unlike the console this reads one shard only — merging several shards' usage into the
+		// single number the client displays would just make it flicker between them. A real per-shard
+		// reading needs the shard in the channel name, which the client doesn't send.
+		const subscription = await runnerUsageChannel(this.context.defaultShard.shard, params.user).listen(message => {
 			Object.assign(usage, message);
 			usage.cpu = Math.floor(Number(usage.cpu)) || 0;
 			send.set(config.backend.socketThrottle);

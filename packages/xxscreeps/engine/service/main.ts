@@ -1,4 +1,5 @@
 import type { ServiceMessage } from './index.js';
+import { checkShardArgument } from 'xxscreeps/config/arguments.js';
 import { config } from 'xxscreeps/config/index.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { Mutex } from 'xxscreeps/engine/db/mutex.js';
@@ -15,7 +16,7 @@ import 'xxscreeps:mods/main';
 
 checkIsEntry();
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using shard = await Shard.connect(db, checkShardArgument());
 await using disposable = new AsyncDisposableStack();
 
 // Open channels
@@ -45,8 +46,9 @@ const saveInterval = config.database.saveInterval * 60000;
 
 // Initialize scratch state
 await using _main = await mainMutex.acquire();
-const [ rooms ] = await Promise.all([
+const [ rooms, world ] = await Promise.all([
 	shard.data.sMembers('rooms'),
+	shard.loadWorld(),
 	shard.scratch.flushdb(),
 ]);
 await shard.scratch.sAdd('initializeRooms', rooms);
@@ -130,7 +132,7 @@ async function tick() {
 				break;
 
 			case 'tickFinished': {
-				await runShardTickProcessors(shard, time);
+				await runShardTickProcessors(shard, world, time);
 				await Promise.all([
 					// Setup for next tick
 					begetRoomProcessQueue(shard, nextTime),
@@ -157,7 +159,7 @@ async function tick() {
 if (didInitialize) {
 	// Seed one-time per-shard state (e.g. periodic-sweep schedules) before the first tick. Runs
 	// after the scratch flush above so the seed survives into the steady state.
-	await runShardInitializers(shard);
+	await runShardInitializers(shard, world);
 
 	// Watch for shutdown and halt tick delay
 	disposable.defer(serviceChannel.listen(message => {

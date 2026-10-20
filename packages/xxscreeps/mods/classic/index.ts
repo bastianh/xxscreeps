@@ -30,6 +30,8 @@ export const manifest: Manifest = {
 		'xxscreeps/mods/modern/powerspawn',
 		'xxscreeps/mods/modern/stronghold',
 
+		'xxscreeps/mods/mmo/operator',
+		'xxscreeps/mods/mmo/portal',
 		'xxscreeps/mods/mmo/powercreep',
 		'xxscreeps/mods/mmo/wallstreet',
 

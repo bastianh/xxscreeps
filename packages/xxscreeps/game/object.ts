@@ -1,7 +1,7 @@
 import type { GameConstructor } from './index.js';
 import type { RoomPosition } from './position.js';
 import type { Room } from './room/index.js';
-import type { InspectOptionsStylized } from 'node:util';
+import type { InspectContext } from 'node:util';
 import type { BufferView, TypeOf } from 'xxscreeps/schema/index.js';
 import type { ActionLogSchema } from 'xxscreeps:mods/game';
 import * as Id from 'xxscreeps/engine/schema/id.js';
@@ -24,6 +24,12 @@ export interface RoomObjectEffect {
 	 * @public
 	 */
 	effect?: number;
+
+	/**
+	 * Power ID of the applied effect. Absent if the effect is not a Power effect.
+	 * @public
+	 */
+	power?: number;
 
 	/**
 	 * Power level of the applied effect. Absent if the effect is not a Power effect.
@@ -155,7 +161,7 @@ export abstract class RoomObject extends withOverlay(BufferObject.BufferObject, 
 		return this.room['#removeObject'](this);
 	}
 
-	private [Symbol.for('nodejs.util.inspect.custom')](depth: number, options: InspectOptionsStylized): unknown {
+	private [Symbol.for('nodejs.util.inspect.custom')](depth: number, options: InspectContext): unknown {
 		if (BufferObject.check(this)) {
 			return expandGetters(this);
 		} else {
@@ -200,9 +206,8 @@ export function untilTime(time: number) {
 
 export function requiredExpiryTime(time: number) {
 	// An overdue expiry time represents invalid game state
-	if (time >= Game.time) {
-		// nb: An expiry time of `0` should only be seen by the processor.
-		return cooldownTime(time);
+	if (time > Game.time) {
+		return time - Game.time;
 	} else {
 		throw new Error(`Invalid expiry time ${time} vs ${Game.time}`);
 	}
@@ -211,6 +216,10 @@ export function requiredExpiryTime(time: number) {
 export function optionalExpiryTime(time: number) {
 	// Optional expiry times may be `undefined`
 	return time === 0 ? undefined : requiredExpiryTime(time);
+}
+
+export function expiresNextTick(time: number) {
+	return optionalExpiryTime(time) === 1;
 }
 
 // Export `RoomObject` to runtime globals
@@ -227,13 +236,14 @@ type WithActionLog = Record<'#actionLog', ActionLog>;
 
 export function saveAction(object: WithActionLog, type: ActionLogType, pos: RoomPosition) {
 	const actionLog = object['#actionLog'];
+	const time = Game.time + 1;
 	for (const action of actionLog) {
 		if (action.type === type) {
-			action.time = Game.time;
+			action.time = time;
 			action.x = pos.x;
 			action.y = pos.y;
 			return;
 		}
 	}
-	actionLog.push({ type, x: pos.x, y: pos.y, time: Game.time });
+	actionLog.push({ type, x: pos.x, y: pos.y, time });
 }

@@ -5,8 +5,8 @@ import type { ResourceType } from 'xxscreeps/mods/classic/resource/resource.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { chainIntentChecks, checkSameRoom, checkTarget } from 'xxscreeps/game/checks.js';
 import { Game, intents, registerGlobal } from 'xxscreeps/game/index.js';
-import { createRoomObject, requiredExpiryTime } from 'xxscreeps/game/object.js';
-import { StructureController, resetController } from 'xxscreeps/mods/classic/controller/controller.js';
+import { createRoomObject, optionalExpiryTime } from 'xxscreeps/game/object.js';
+import { StructureController, checkUpgradeBlocked, resetController } from 'xxscreeps/mods/classic/controller/controller.js';
 import { Creep } from 'xxscreeps/mods/classic/creep/creep.js';
 import { StructureTower } from 'xxscreeps/mods/classic/defense/tower.js';
 import { kInvaderUserId } from 'xxscreeps/mods/classic/invader/game.js';
@@ -41,7 +41,7 @@ export class StructureInvaderCore extends withOverlay(OwnedStructure, invaderCor
 	 */
 	@enumerable get ticksToDeploy(): number | undefined {
 		const deployTime = this['#deployTime'];
-		return deployTime === 0 ? undefined : requiredExpiryTime(deployTime + 1) - 1;
+		return optionalExpiryTime(deployTime);
 	}
 
 	override get hitsMax(): number {
@@ -210,10 +210,8 @@ export function checkAttackController(core: StructureInvaderCore, target: Struct
 			if (target.safeMode !== undefined && target['#user'] !== kInvaderUserId) {
 				return C.ERR_INVALID_TARGET;
 			}
-			if (target.upgradeBlocked !== undefined) {
-				return C.ERR_TIRED;
-			}
-		});
+		},
+		() => checkUpgradeBlocked(target, C.ERR_TIRED));
 }
 
 export function checkUpgradeController(core: StructureInvaderCore, target: StructureController) {
@@ -226,10 +224,8 @@ export function checkUpgradeController(core: StructureInvaderCore, target: Struc
 			if (target.level === 0 || target['#user'] !== kInvaderUserId) {
 				return C.ERR_NOT_OWNER;
 			}
-			if (target.upgradeBlocked !== undefined) {
-				return C.ERR_INVALID_TARGET;
-			}
-		});
+		},
+		() => checkUpgradeBlocked(target, C.ERR_INVALID_TARGET));
 }
 
 // The NPC loop is the only caller and supplies the body/name, so this validates core state only,

@@ -3,6 +3,7 @@ import type { Shard } from 'xxscreeps/engine/db/index.js';
 import { Channel } from 'xxscreeps/engine/db/channel.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { UpdateSchemaBlob, loadUpgradedWithWriteBack } from 'xxscreeps/engine/schema/keyval.js';
+import { Fn } from 'xxscreeps/functional/fn.js';
 import * as C from 'xxscreeps:mods/constants';
 import { Order, orderAmountOffsetOf, orderSchemaVersion, readOrder, upgradeOrder, writeOrder } from './order.js';
 
@@ -95,6 +96,22 @@ export async function loadAndReadMarketOrder(shard: Shard, id: string) {
 	}
 }
 
+// Load the readable orders among `ids`; an id whose blob is gone is skipped.
+async function loadAndReadMarketOrders(shard: Shard, ids: Iterable<string>) {
+	const orders = await Fn.mapAwait(ids, id => loadAndReadMarketOrder(shard, id));
+	return [ ...Fn.filter(orders) ];
+}
+
+// Load the active book.
+export async function loadActiveOrders(shard: Shard) {
+	return loadAndReadMarketOrders(shard, await shard.data.sMembers(activeOrdersKey));
+}
+
+// Load a user's orders, active and inactive.
+export async function loadUserOrders(shard: Shard, userId: string) {
+	return loadAndReadMarketOrders(shard, await shard.data.sMembers(userOrdersKey(userId)));
+}
+
 // Write a new order and index it.
 export async function insertOrder(shard: Shard, order: Order) {
 	const orderId = order.id;
@@ -133,6 +150,12 @@ export function deleteOrder(shard: Shard, orderId: string, userId?: string) {
 		shard.data.zRem(allOrdersKey, [ orderId ]),
 		shard.data.del(orderBlobKey(orderId)),
 	]);
+}
+
+// Deletes every order a user owns. No refund takes place.
+export async function deleteOrdersForUser(shard: Shard, userId: string) {
+	const orderIds = await shard.data.sMembers(userOrdersKey(userId));
+	await Fn.mapAwait(orderIds, orderId => deleteOrder(shard, orderId, userId));
 }
 
 // Expire an aged order, refunding the unspent share of the listing fee.

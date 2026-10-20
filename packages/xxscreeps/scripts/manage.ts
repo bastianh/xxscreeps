@@ -1,5 +1,5 @@
 // Ops tool for managing users and bots on a self-hosted xxscreeps server — connects to the
-// configured storage provider directly, like scripts/scrape-world.ts. Registered as the `manage`
+// configured storage provider directly, like scripts/initialize.ts. Registered as the `manage`
 // subcommand; run after `tsc -b`: `xxscreeps manage <user|bot> <verb> ...` (usage() lists commands).
 //
 // The running engine caches state: list/show/create read storage per request, but a new user isn't
@@ -8,10 +8,14 @@
 // so it works whether or not the server is running (a running server hands off the mutex between ticks).
 // Code saves are picked up by the runner on the next tick via the code channel. `remove` deletes
 // records only — owned room objects are left alone — and is safe for inactive users; pause the
-// engine first if the user is live.
+// engine first if the user is live. Users are shared by every shard, so `--shard` matters only to
+// what is stored per shard: the game verbs, `--spawn`, and the memory that `show` reads. `remove`
+// clears every shard.
 
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { checkArguments } from 'xxscreeps/config/arguments.js';
 import { config } from 'xxscreeps/config/index.js';
 import { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import { Mutex } from 'xxscreeps/engine/db/mutex.js';
@@ -30,24 +34,24 @@ import { flushUsers } from 'xxscreeps/game/room/room.js';
 import { setPassword } from 'xxscreeps/mods/backend/password/model.js';
 import { checkCreateConstructionSite } from 'xxscreeps/mods/classic/construction/room.js';
 import * as ControllerProc from 'xxscreeps/mods/classic/controller/processor.js';
-// Side-effect imports: register the `User.remove` hooks which tear down per-user state owned by
-// mods — private messages, leaderboard standings.
-// TODO: These should not live in model, which should generally not have top-level effects.
-import 'xxscreeps/mods/meta/leaderboard/model.js';
-import 'xxscreeps/mods/meta/messages/model.js';
 import { create as createSpawn } from 'xxscreeps/mods/classic/spawn/spawn.js';
 import { createRuin } from 'xxscreeps/mods/classic/structure/ruin.js';
 import { OwnedStructure } from 'xxscreeps/mods/classic/structure/structure.js';
 import { catalog } from 'xxscreeps/mods/meta/decorations/catalog.js';
-// Also a side-effect import: registers the `User.remove` hook for owned decorations.
 import * as Decorations from 'xxscreeps/mods/meta/decorations/model.js';
-import { deleteUserMemoryBlob, loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
+import { loadUserMemoryBlob } from 'xxscreeps/mods/meta/memory/model.js';
 import * as C from 'xxscreeps:mods/constants';
 
 import 'xxscreeps:mods/game';
 
+const argv = checkArguments({
+	argv: true,
+	array: [ 'spawn' ] as const,
+	string: [ 'shard' ] as const,
+});
+
 await using db = await Database.connect();
-await using shard = await Shard.connect(db, config.shards[0]!.name);
+await using shard = await Shard.connect(db, argv.shard ?? config.shards[0]!.name);
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
 const save = () => Promise.all([ db.save(), shard.save() ]);
@@ -134,10 +138,13 @@ async function userCreate(name: string, email?: string) {
 
 async function userRemove(who: string) {
 	const id = await resolveUserId(who);
-	await Promise.all([
-		User.remove(db, id),
-		deleteUserMemoryBlob(shard, id),
-	]);
+	// Every shard before the user record, which is what finds them again if one of these fails
+	await Fn.mapAwait(config.shards, async info => {
+		await using target = await Shard.connectWith(db, info);
+		await User.removeFromShard(target, id);
+		await target.save();
+	});
+	await User.remove(db, id);
 	await save();
 	out(`Removed user ${who} (${id}).`);
 }
@@ -285,6 +292,11 @@ async function loadCodeDir(dir: string) {
 	return modules;
 }
 
+// The example bot the vanilla private server seeds its four bots from, bundled so a freshly
+// imported world can be populated without the operator building a bot first. Sources are verbatim
+// from @screeps/launcher (`init_dist/db.json`, the `users.code` collection).
+const bundledBotDir = fileURLToPath(new URL('../../scripts/data/bot', import.meta.url));
+
 // Shared by `bot add` and `bot update`. Code loads before any database write so a bad directory
 // can't leave a half-registered user.
 async function botSave(who: string, dir: string, branchArg: string | undefined, create: boolean) {
@@ -372,7 +384,7 @@ async function botSpawn(userId: string, roomName: string, coords?: string) {
 	// intent performs (drop neutral objects, claim the controller, insert the spawn), but without the
 	// processor. `claim` queues its scratch writes through a minimal context we drain afterwards.
 	const room = await shard.loadRoom(roomName, time);
-	const state = new GameState(world, time + 1, [ room ]);
+	const state = new GameState(world, time, [ room ]);
 	const tasks: Promise<unknown>[] = [];
 	const context = {
 		shard,
@@ -419,7 +431,7 @@ async function botSpawn(userId: string, roomName: string, coords?: string) {
 }
 
 function usage(): never {
-	process.stderr.write(`Usage:
+	process.stderr.write(`Usage: xxscreeps manage <command> [--shard <name>]
 	game pause
 	game pause-tick [count]
 	game unpause
@@ -435,14 +447,15 @@ function usage(): never {
   decoration grant   <name|id> <decorationId>
   decoration revoke  <name|id> <itemId>
   decoration cleanup [name|id]
-  bot  add    <name> <codeDir> [branch] [--spawn <room> [x,y]]
+  bot  add    <name> [codeDir [branch]] [--spawn <room> [x,y]]
   bot  update <name|id> <codeDir> [branch]
   bot  remove <name|id>
+A value which starts with '-' goes after '--': user password <name|id> -- <password>
 `);
 	process.exit(2);
 }
 
-const [ noun, verb, ...rest ] = process.argv.slice(2);
+const [ noun, verb, ...rest ] = argv.argv;
 try {
 	switch (`${noun} ${verb}`) {
 		case 'game pause': await getServiceChannel(shard).publish({ type: 'pause' }); break;
@@ -466,14 +479,12 @@ try {
 		case 'decoration revoke': if (rest[0] === undefined || rest[1] === undefined) usage(); await decorationRevoke(rest[0], rest[1]); break;
 		case 'decoration cleanup': await decorationCleanup(rest[0]); break;
 		case 'bot add': {
-			const spawnIndex = rest.indexOf('--spawn');
-			const args = spawnIndex === -1 ? rest : rest.slice(0, spawnIndex);
-			const spawnArgs = spawnIndex === -1 ? undefined : rest.slice(spawnIndex + 1);
-			if (args[0] === undefined || args[1] === undefined) usage();
-			const userId = await botSave(args[0], args[1], args[2], true);
-			if (spawnArgs !== undefined) {
-				if (spawnArgs[0] === undefined) usage();
-				await botSpawn(userId, spawnArgs[0], spawnArgs[1]);
+			if (rest[0] === undefined) usage();
+			const userId = await botSave(rest[0], rest[1] ?? bundledBotDir, rest[2], true);
+			if (argv.spawn !== undefined) {
+				const [ roomName, coords ] = argv.spawn;
+				if (roomName === undefined) usage();
+				await botSpawn(userId, roomName, coords);
 			}
 			break;
 		}

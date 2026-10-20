@@ -1,3 +1,8 @@
+[![npm version](https://img.shields.io/npm/v/xxscreeps)](https://www.npmjs.com/package/xxscreeps)
+[![github action](https://github.com/laverdet/xxscreeps/actions/workflows/xxscreeps.yml/badge.svg)](https://github.com/laverdet/xxscreeps/actions/workflows/xxscreeps.yml)
+[![isc license](https://img.shields.io/npm/l/xxscreeps)](https://github.com/laverdet/xxscreeps/blob/main/LICENSE)
+[![npm downloads](https://img.shields.io/npm/dm/xxscreeps)](https://www.npmjs.com/package/xxscreeps)
+
 # xxscreeps
 
 This is a from-scratch rewrite of the Screeps backend services, brought to you by the author of
@@ -87,16 +92,24 @@ to information about game APIs.
 
 To get xxscreeps running here's what you need to do. This should work on Linux, macOS, and Windows.
 First step is make sure nodejs v24.x is installed, older versions will probably not work.
-```
+TODO: v24 is the npm version, v26 is the git version.
+```sh
 mkdir xxscreeps
 cd xxscreeps
-# note: we use @screeps/launcher to generate terrain
-npm install xxscreeps @screeps/launcher
-npx xxscreeps import
+npm install xxscreeps
+npx xxscreeps initialize
 npx xxscreeps start
 ```
 
-Now there is a Screeps server running at http://localhost:21025.
+Or if you want the default Steam world, instead of a dynamic world you can do this:
+```sh
+npx xxscreeps initialize --preset=steam
+```
+
+Now there is a Screeps server running at http://localhost:21025. `initialize` seeds a fresh world of
+one sector, W0N0 through W10N10. Its room types match the default Steam map, but its terrain is new
+each time. To play on the Steam map itself, run `npx xxscreeps initialize --preset=steam` instead.
+Once a world exists `initialize` refuses to replace it; pass `--allow-overwrite` to start over.
 
 If you want to use the Steam client you need to go here: https://steamcommunity.com/dev/apikey and
 get an API key. Then add it to `.screepsrc.yaml`:
@@ -119,14 +132,23 @@ If you're using VS Code and you have the [YAML extension](https://marketplace.vi
 autocomplete. If not you can read the [config
 schema](src/config/config.ts).
 
-If you want to use your bot script, use `npx xxscreeps import --overwrite-code ../your-bot/dist` to replace builtin bots.
-
 ### Adding bots
 
-`import --overwrite-code` replaces the built-in bots. To add a *named* bot — and optionally place
-its first spawn — without touching the built-ins, use the `manage` subcommand:
+`initialize` seeds an unowned world. Populate it with the `manage` subcommand, which uses the example
+bot the vanilla private server ships when you don't name a directory. These four commands rebuild
+the lineup that server starts with, in the corner rooms it uses, each spawn placed at random:
 
+```sh
+npx xxscreeps manage bot add AliceBot   --spawn W1N9
+npx xxscreeps manage bot add EmmaBot    --spawn W1N1
+npx xxscreeps manage bot add JackBot    --spawn W9N1
+npx xxscreeps manage bot add MichaelBot --spawn W9N9
 ```
+
+Add `x,y` after the room to choose the spawn's position, or pass a directory to run your own bot
+instead:
+
+```sh
 npx xxscreeps manage bot add <name> <dir> --spawn <room>
 ```
 
@@ -136,13 +158,35 @@ or `dist`), not the source tree of a bot that still needs compiling. `--spawn` a
 first spawn, whether or not a server is running; drop it to just save the code. Open-source bots
 published for vanilla servers work as-is:
 
-```
+```sh
 npm install screeps-bot-tooangel
-npx xxscreeps manage bot add tooangel node_modules/screeps-bot-tooangel/src --spawn W5N5
+npx xxscreeps manage bot add tooangel node_modules/screeps-bot-tooangel/src --spawn W7N7
 ```
 
 `manage` also has `user` verbs plus `bot update`/`bot remove`; run `xxscreeps manage` with no
 arguments to print the full command list.
+
+### Saving and Moving Worlds
+
+`export` writes the shard's map as a JSON payload, and `initialize <file.json>` seeds a server from
+one:
+
+```sh
+npx xxscreeps export world.json
+npx xxscreeps initialize world.json
+```
+
+A payload is the map, not a save game. It carries every room's terrain and the objects a fresh
+world needs -- controllers, sources, minerals, keeper lairs, prebuilt extractors and portals -- and
+nothing a player has done. Spawns, structures, creeps and construction sites stay behind, and
+`export` prints a count of what it dropped. Players themselves live in the global database rather
+than the shard: accounts, code, `Memory`, badges and GCL. `initialize world.json --shard-only
+--allow-overwrite` replaces the shard and keeps them, which is how to reset a map under existing
+players.
+
+To back up a running world, stop the server and copy `./screeps/` -- the database and every shard,
+including state no payload records. Moving to another machine is the same copy; only the paths in
+`.screepsrc.yaml` need to follow.
 
 ## Operator CLI
 
@@ -179,7 +223,7 @@ the shard's terrain blob and `rooms` set. The default loadout is a controller,
 same without the lairs — controller-less rooms hold keeper-capacity sources
 and a prebuilt extractor. `terrainType` picks one of 28 wall layouts and
 `swampType` one of 14 swamp layouts (0 for no swamp); both roll randomly when
-omitted. Like `npx xxscreeps import`, it is an offline operation — stop the
+omitted. Like `npx xxscreeps initialize`, it is an offline operation — stop the
 server before running it so cached world state in the backend, processor, and
 runner workers doesn't go stale. Exits are read from any already-generated
 neighbor, so adjacent generated rooms connect. A border facing a room the
@@ -212,11 +256,11 @@ flags as `generate-room`.
 ## Docker
 
 If you want to run xxscreeps in Docker, you can do this:
-```
+```sh
 git clone https://github.com/laverdet/xxscreeps.git
 cd xxscreeps
 docker build . -t xxscreeps
-docker run -t -v .:/data xxscreeps import
+docker run -t -v .:/data xxscreeps initialize
 docker run -t -v .:/data xxscreeps start
 ```
 

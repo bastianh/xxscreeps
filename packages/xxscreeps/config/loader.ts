@@ -1,36 +1,51 @@
 import type { Manifest, ResolvedMod } from './mods.js';
+import { resolve } from '@loaderkit/resolve/esm';
+import { defaultAsyncFileSystem } from '@loaderkit/resolve/fs';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { nonNullPredicate } from 'xxscreeps/functional/predicate.js';
 import { makeRelativeFragment } from 'xxscreeps/utility/url.js';
 
-const provideNames = [ 'backend', 'config', 'constants', 'driver', 'game', 'main', 'processor', 'schema', 'storage', 'terrain', 'test' ] as const;
+const provideNames = [ 'backend', 'config', 'constants', 'driver', 'game', 'main', 'processor', 'schema', 'storage', 'terrain', 'test', 'user' ] as const;
 /** @internal */
 export type Provide = typeof provideNames[number];
 /** @internal */
 export const isProvide = (value: string): value is Provide => provideNames.includes(value as Provide);
 
-type Make = (mods: readonly ResolvedMod[], provider: Provide) => string;
+// Mods can export providers either as, for example, 'game.js' or 'game/index.js'
+async function resolveProvide(mod: ResolvedMod, provide: Provide) {
+	const url = new URL(mod.url);
+	try {
+		const resolution = await resolve(defaultAsyncFileSystem, `./${provide}/index.js`, url);
+		return resolution.url.href;
+	} catch (suppressed) {
+		try {
+			const resolution = await resolve(defaultAsyncFileSystem, `./${provide}.js`, url);
+			return resolution.url.href;
+		} catch (error) {
+			throw new SuppressedError(error, suppressed, `Failed to resolve provider '${provide}' of mod '${mod.specifier}'`);
+		}
+	}
+}
 
 // `makeModSourceText` helpers
-const makeMakeGenericSource = (
+function makeMakeGenericSource(
 	make: (info: { js: string; types?: Manifest['types'] }, ii: number) => string | undefined,
 	fold?: (sources: string[], provide: Provide) => string,
-): Make => (mods, provide) =>
-	Fn.pipe(
-		mods,
-		$$ => Fn.map($$, mod => {
-			const js = mod.provides[provide];
-			const types = mod.types;
-			if (js) {
-				return { js, types };
-			}
-		}),
-		$$ => Fn.filter($$),
-		$$ => Fn.map($$, make),
-		$$ => Fn.filter($$, nonNullPredicate),
-		fold
-			? $$ => fold([ ...$$ ], provide)
-			: $$ => Fn.join($$, '\n') + '\n');
+) {
+	return async (mods: readonly ResolvedMod[], provide: Provide) =>
+		Fn.pipe(
+			await Fn.mapAwait(
+				Fn.filter(mods, mod => mod.provides.includes(provide)),
+				async mod => ({
+					js: await resolveProvide(mod, provide),
+					types: mod.types,
+				})),
+			$$ => Fn.map($$, make),
+			$$ => Fn.filter($$, nonNullPredicate),
+			fold
+				? $$ => fold([ ...$$ ], provide)
+				: $$ => Fn.join($$, '\n') + '\n');
+}
 
 // xxscreeps:mods/constants
 const makeConstantsSource = makeMakeGenericSource(
@@ -96,30 +111,30 @@ const makeEffectsTypeScriptSource = makeMakeGenericSource(
  * Render source text module which imports the given `Provide` from each module
  * @internal
  */
-export function makeModSourceText(mods: readonly ResolvedMod[], provider: Provide) {
+export function makeModSourceText(mods: readonly ResolvedMod[], provide: Provide) {
 	const make = function() {
 		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-		switch (provider) {
+		switch (provide) {
 			case 'config': return makeConfigSource;
 			case 'constants': return makeConstantsSource;
 			case 'schema': return makeSchemaSource;
 			default: return makeSideEffectsSource;
 		}
 	}();
-	return make(mods, provider);
+	return make(mods, provide);
 }
 
 /**
  * Render TypeScript source text module representing a `.d.ts` file.
  * @internal
  */
-export function makeModTypeScriptText(mods: readonly ResolvedMod[], provider: Provide) {
+export function makeModTypeScriptText(mods: readonly ResolvedMod[], provide: Provide) {
 	const make = function() {
 		// eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-		switch (provider) {
+		switch (provide) {
 			case 'constants': return makeConstantsTypeScriptSource;
 			default: return makeEffectsTypeScriptSource;
 		}
 	}();
-	return make(mods, provider);
+	return make(mods, provide);
 }

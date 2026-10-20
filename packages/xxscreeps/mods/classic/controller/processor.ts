@@ -2,7 +2,7 @@ import type { ProcessorContext } from 'xxscreeps/engine/processor/room.js';
 import * as User from 'xxscreeps/engine/db/user/index.js';
 import { hooks, registerIntentProcessor, registerObjectTickProcessor } from 'xxscreeps/engine/processor/index.js';
 import { Game } from 'xxscreeps/game/index.js';
-import { saveAction } from 'xxscreeps/game/object.js';
+import { expiresNextTick, saveAction } from 'xxscreeps/game/object.js';
 import { appendEventLog } from 'xxscreeps/game/room/event-log.js';
 import { Creep, calculateBoundedEffect } from 'xxscreeps/mods/classic/creep/creep.js';
 import { kCoalesceForever, sendNotification } from 'xxscreeps/mods/meta/notifications/transport.js';
@@ -33,13 +33,21 @@ export function release(context: ProcessorContext, controller: StructureControll
 	context.didUpdate();
 }
 
-export function reserve(context: ProcessorContext, controller: StructureController, userId: string, endTime: number) {
-	if (controller['#reservationEndTime'] === 0) {
+export function reserve(context: ProcessorContext, controller: StructureController, userId: string, power: number) {
+	const reservationEndTime = controller['#reservationEndTime'];
+	const endTime = (reservationEndTime || Game.time + 1) + power;
+	// A reserve that would carry `ticksToEnd` to CONTROLLER_RESERVE_MAX is dropped whole, so a
+	// saturated reservation decays this tick.
+	if (endTime > Game.time + C.CONTROLLER_RESERVE_MAX) {
+		return false;
+	}
+	if (reservationEndTime === 0) {
 		updateRoomStatus(controller.room, 0, userId);
 		context.task(insertReservedRoom(context.shard, userId, controller.room.name));
 	}
 	controller['#reservationEndTime'] = endTime;
 	context.didUpdate();
+	return true;
 }
 
 export type ControllerIntents = typeof intents;
@@ -58,7 +66,7 @@ const intents = [
 				controller['#reservationEndTime'] = reservation - effect * C.CONTROLLER_RESERVE;
 			} else {
 				controller['#downgradeTime'] -= effect * C.CONTROLLER_CLAIM_DOWNGRADE;
-				controller['#upgradeBlockedUntil'] = Game.time + C.CONTROLLER_ATTACK_BLOCKED_UPGRADE - 1;
+				controller['#upgradeBlockedUntil'] = Game.time + C.CONTROLLER_ATTACK_BLOCKED_UPGRADE;
 			}
 			saveAction(creep, 'attack', controller.pos);
 			appendEventLog(controller.room, {
@@ -123,17 +131,14 @@ const intents = [
 		const controller = Game.getObjectById<StructureController>(id)!;
 		if (CreepLib.checkReserveController(creep, controller) === C.OK) {
 			const power = creep.getActiveBodyparts(C.CLAIM) * C.CONTROLLER_RESERVE;
-			const reservationEndTime = controller['#reservationEndTime'];
-			const endTime = reservationEndTime
-				? Math.min(Game.time + C.CONTROLLER_RESERVE_MAX, reservationEndTime + power + 1)
-				: Game.time + power + 1;
-			reserve(context, controller, creep['#user'], endTime);
-			saveAction(creep, 'reserveController', controller.pos);
-			appendEventLog(controller.room, {
-				event: C.EVENT_RESERVE_CONTROLLER,
-				objectId: creep.id,
-				amount: power,
-			});
+			if (reserve(context, controller, creep['#user'], power)) {
+				saveAction(creep, 'reserveController', controller.pos);
+				appendEventLog(controller.room, {
+					event: C.EVENT_RESERVE_CONTROLLER,
+					objectId: creep.id,
+					amount: power,
+				});
+			}
 		}
 	}),
 
@@ -203,8 +208,8 @@ const intents = [
 	registerIntentProcessor(StructureController, 'activateSafeMode', {}, (controller, context) => {
 		if (checkActivateSafeMode(controller) === C.OK) {
 			--controller.safeModeAvailable;
-			controller.room['#safeModeUntil'] = Game.time + C.SAFE_MODE_DURATION - 1;
-			controller['#safeModeCooldownTime'] = Game.time + C.SAFE_MODE_COOLDOWN - 1;
+			controller.room['#safeModeUntil'] = Game.time + C.SAFE_MODE_DURATION;
+			controller['#safeModeCooldownTime'] = Game.time + C.SAFE_MODE_COOLDOWN;
 			context.didUpdate();
 		}
 	}),
@@ -220,7 +225,7 @@ registerObjectTickProcessor(StructureController, (controller, context) => {
 	if (controller.level === 0) {
 		const reservationEndTime = controller['#reservationEndTime'];
 		if (reservationEndTime) {
-			if (reservationEndTime <= Game.time) {
+			if (reservationEndTime <= Game.time + 1) {
 				release(context, controller);
 			} else {
 				context.wakeAt(reservationEndTime);
@@ -231,7 +236,7 @@ registerObjectTickProcessor(StructureController, (controller, context) => {
 		const upgradePower = controller.upgradePowerThisTick ?? 0;
 		controller.upgradePowerThisTick = 0;
 		if (ticksToDowngrade === undefined) {
-			controller['#downgradeTime'] = Game.time + C.CONTROLLER_DOWNGRADE[controller.level]!;
+			controller['#downgradeTime'] = Game.time + C.CONTROLLER_DOWNGRADE[controller.level]! + 1;
 			context.didUpdate();
 		} else if (upgradePower > 0) {
 			controller['#downgradeTime'] = 1 + Math.min(
@@ -240,7 +245,7 @@ registerObjectTickProcessor(StructureController, (controller, context) => {
 			context.task(incrementGlobalControlLevel(context.shard, controller['#user']!, upgradePower));
 			context.incrementRoomStat?.(controller['#user'], 'energyControl', upgradePower);
 			context.didUpdate();
-		} else if (ticksToDowngrade === 0) {
+		} else if (expiresNextTick(controller['#downgradeTime'])) {
 			const { room } = controller;
 			const userId = controller['#user']!;
 			// The new level is not written to the room here. `release` reads the current level to tell
@@ -255,7 +260,7 @@ registerObjectTickProcessor(StructureController, (controller, context) => {
 			} else {
 				controller['#downgradeTime'] = Game.time + C.CONTROLLER_DOWNGRADE[level]! / 2;
 				controller['#progress'] = Math.round(C.CONTROLLER_LEVELS[level]! * 0.9);
-				controller['#safeModeCooldownTime'] = Game.time + C.SAFE_MODE_COOLDOWN - 1;
+				controller['#safeModeCooldownTime'] = Game.time + C.SAFE_MODE_COOLDOWN;
 				updateRoomStatus(controller.room, level, controller['#user']);
 			}
 			context.didUpdate();

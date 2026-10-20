@@ -6,6 +6,7 @@ import type { PartType } from 'xxscreeps/mods/classic/creep/creep.js';
 import type { ResourceType } from 'xxscreeps/mods/classic/resource/resource.js';
 import { pushIntentsForRoomNextTick } from 'xxscreeps/engine/processor/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
+import { Game } from 'xxscreeps/game/index.js';
 import { RoomPosition, iterateNeighbors } from 'xxscreeps/game/position.js';
 import { create as createSite } from 'xxscreeps/mods/classic/construction/construction-site.js';
 import { create as createCreep } from 'xxscreeps/mods/classic/creep/creep.js';
@@ -124,21 +125,21 @@ describe('mods/modern/stronghold', () => {
 			},
 		});
 
-		test('clears the deploy timer the tick after it elapses', () => deployBoundary(async ({ player, tick }) => {
-			// Game.time === deployTime: final invulnerable tick, `ticksToDeploy === 0`.
-			await tick(2);
-			await player('100', Game => {
-				const core = findCore(Game);
-				assert.strictEqual(Game.time, 2);
-				assert.strictEqual(core.ticksToDeploy, 0, 'invulnerable through Game.time === deployTime');
-				assert.deepStrictEqual(core.effects, [ { effect: C.EFFECT_INVULNERABILITY, ticksRemaining: 0 } ]);
-			});
-			// Game.time === deployTime + 1: the elapsed timer deploys the stronghold, swapping
-			// invulnerability for a collapse timer. Reading the expiry getters must not throw.
+		test('deploys as the deploy timer elapses', () => deployBoundary(async ({ player, tick }) => {
+			// Game.time === deployTime - 1: final invulnerable tick, `ticksToDeploy === 1`.
 			await tick();
 			await player('100', Game => {
 				const core = findCore(Game);
-				assert.strictEqual(Game.time, 3);
+				assert.strictEqual(Game.time, 1);
+				assert.strictEqual(core.ticksToDeploy, 1, 'invulnerable through the last countdown tick');
+				assert.deepStrictEqual(core.effects, [ { effect: C.EFFECT_INVULNERABILITY, ticksRemaining: 1 } ]);
+			});
+			// Game.time === deployTime: the stronghold is deployed, swapping invulnerability for a
+			// collapse timer. Reading the expiry getters must not throw.
+			await tick();
+			await player('100', Game => {
+				const core = findCore(Game);
+				assert.strictEqual(Game.time, 2);
 				assert.strictEqual(core.ticksToDeploy, undefined, 'deploy timer cleared after it elapses');
 				const effects = core.effects!;
 				assert.strictEqual(effects.length, 1, 'a deployed core reports only the collapse timer');
@@ -182,7 +183,7 @@ describe('mods/modern/stronghold', () => {
 			await tick();
 			await peekRoom('W1N1', (room, Game) => {
 				const controller = room.controller!;
-				const expectedFirst = Game.time + C.INVADER_CORE_CONTROLLER_POWER * C.CONTROLLER_RESERVE + 1;
+				const expectedFirst = Game.time + C.INVADER_CORE_CONTROLLER_POWER * C.CONTROLLER_RESERVE;
 				assert.strictEqual(controller['#reservationEndTime'], expectedFirst);
 				assert.strictEqual(room['#user'], kInvaderUserId, 'room user becomes 2 once reserved');
 				const core = findRoomCore(room)!;
@@ -201,6 +202,29 @@ describe('mods/modern/stronghold', () => {
 				await tick();
 				const second = await peekRoom('W1N1', room => room.controller!['#reservationEndTime']);
 				assert.strictEqual(second - first, C.INVADER_CORE_CONTROLLER_POWER * C.CONTROLLER_RESERVE);
+			}));
+
+		// At the cap: `ticksToEnd` reads CONTROLLER_RESERVE_MAX - 1, the most a reservation shows.
+		const ownReservationAtCap = simulate({
+			W1N1: room => {
+				room['#user'] = kInvaderUserId;
+				room.controller!['#reservationEndTime'] = Game.time + C.CONTROLLER_RESERVE_MAX - 1;
+				room['#insertObject'](createInvaderCore(corePos, 2, 0));
+				activateNPC(room, kInvaderUserId);
+			},
+		});
+
+		test('a renewal that would reach CONTROLLER_RESERVE_MAX is dropped',
+			() => ownReservationAtCap(async ({ tick, peekRoom }) => {
+				const endTime = await peekRoom('W1N1', room => room.controller?.['#reservationEndTime']);
+				await tick();
+				await peekRoom('W1N1', room => {
+					assert.strictEqual(room.controller?.['#reservationEndTime'], endTime);
+					assert.ok(!room.getEventLog().some(event => event.event === C.EVENT_RESERVE_CONTROLLER));
+					const core = findRoomCore(room);
+					assert.ok(core);
+					assert.ok(!core['#actionLog'].some(entry => entry.type === 'reserveController'));
+				});
 			}));
 
 		const hostileReservation = simulate({
@@ -240,11 +264,11 @@ describe('mods/modern/stronghold', () => {
 			await tick();
 			await peekRoom('W1N1', (room, Game) => {
 				const controller = room.controller!;
-				const expiry = Game.time + C.INVADER_CORE_CONTROLLER_DOWNGRADE;
+				const expiry = Game.time - 1 + C.INVADER_CORE_CONTROLLER_DOWNGRADE;
 				assert.strictEqual(controller['#downgradeTime'], expiry);
 				const invulnerability = controller.effects?.find(effect => effect.effect === C.EFFECT_INVULNERABILITY);
 				assert.ok(invulnerability, 'controller should report EFFECT_INVULNERABILITY after upgradeController');
-				assert.strictEqual(invulnerability.ticksRemaining, C.INVADER_CORE_CONTROLLER_DOWNGRADE);
+				assert.strictEqual(invulnerability.ticksRemaining, C.INVADER_CORE_CONTROLLER_DOWNGRADE - 1);
 			});
 		}));
 
@@ -539,8 +563,8 @@ describe('mods/modern/stronghold', () => {
 		const corePos = new RoomPosition(25, 25, 'W1N1');
 		const findRoomCore = (room: Room) => lookForStructures(room, C.STRUCTURE_INVADER_CORE)[0];
 
-		// The deploy timer elapses the tick after `deployTime` (Game.time === 2); `activateNPC` keeps the
-		// room processing across the boundary.
+		// The stronghold is deployed at `deployTime` (Game.time === 1); `activateNPC` keeps the room
+		// processing across the boundary.
 		const deployScene = simulate({
 			W1N1: room => {
 				const core = createInvaderCore(corePos, 2, 1);
@@ -628,7 +652,7 @@ describe('mods/modern/stronghold', () => {
 		});
 
 		test('deploy crushes player objects on template tiles', () => crushScene(async ({ tick, peekRoom }) => {
-			await tick(2);
+			await tick();
 			await peekRoom('W1N1', room => {
 				// The creep dies where it stood — once, though its tile carries three template entries.
 				assert.strictEqual(room.find(C.FIND_CREEPS).length, 0, 'a creep on a template tile dies');

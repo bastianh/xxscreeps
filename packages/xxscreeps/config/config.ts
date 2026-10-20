@@ -13,7 +13,8 @@ export interface BackendConfig {
 
 	/**
 	 * Whether to allow users sign up without steam with only their email address.
-	 * Note: there is currently no confirmation mail send to the user to verify the address.
+	 * Note: xxscreeps itself does not send a confirmation mail; install a mod which does and set
+	 * `email.autoVerify: false` to require one.
 	 * @default false
 	 */
 	allowEmailRegistration?: boolean;
@@ -40,6 +41,14 @@ export interface BackendConfig {
 	 * do anything with the client ip.
 	 */
 	proxy?: BackendProxyConfig;
+
+	/**
+	 * Where this server is reachable from a browser, e.g. "https://screeps.example.com". Links the
+	 * backend mails out are rooted here. It cannot be taken from the request which triggers the mail:
+	 * that origin is the `Host` header, so a forged one would have us mail a link pointing somewhere
+	 * else entirely.
+	 */
+	publicUrl?: string;
 
 	/**
 	 * Secret used for session authentication. If not specified a new secret will be generated each
@@ -201,10 +210,17 @@ export interface RunnerConfig {
 
 export interface RunnerCPUConfig {
 	/**
-	 * CPU bucket size per user
+	 * CPU bucket size per user. Each shard holds a bucket of this size.
 	 * @default 10000
 	 */
 	bucket?: number;
+
+	/**
+	 * CPU allotted to a user each tick, on each shard. This is `Game.cpu.limit`, and the rate at
+	 * which that shard's bucket refills.
+	 * @default 100
+	 */
+	limit?: number;
 
 	/**
 	 * Memory limit, in megabytes. The actual memory limit as reported by the isolate will be
@@ -296,6 +312,7 @@ export const defaults = {
 		concurrency: os.availableParallelism() + 1,
 		cpu: {
 			bucket: 10000,
+			limit: 100,
 			memoryLimit: 256,
 			tickLimit: 500,
 		},

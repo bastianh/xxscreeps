@@ -1,23 +1,39 @@
 import type { Badge } from './badge.js';
-import type { Database } from 'xxscreeps/engine/db/index.js';
+import type { Database, Shard } from 'xxscreeps/engine/db/index.js';
 import type { MaybePromise } from 'xxscreeps/utility/types.js';
+import { deleteUserBucket } from 'xxscreeps/engine/runner/model.js';
 import { Fn } from 'xxscreeps/functional/fn.js';
 import { makeHookRegistration } from 'xxscreeps/utility/hook.js';
 import { branchManifestKey, buffersKey, saveContent, stringsKey } from './code.js';
 
-// Lifecycle hooks for users. Mods register `remove` handlers to tear down their own per-user,
-// db-scoped state (e.g. private messages) when a user is deleted, so `remove` below stays
-// self-contained for every caller rather than each call site enumerating mod cleanups.
+// Lifecycle hooks for users. Mods register handlers to tear down their own per-user state when a
+// user is deleted, so the functions below stay self-contained for every caller rather than each
+// call site enumerating mod cleanups: `remove` for db-scoped state (e.g. private messages, stats),
+// and `removeFromShard` for state each shard keeps (e.g. memory).
 export const hooks = makeHookRegistration<{
 	remove: (db: Database, userId: string) => MaybePromise<void>;
+	removeFromShard: (shard: Shard, userId: string) => Promise<void>;
 }>();
 const removeHooks = hooks.makeMapped('remove');
+const removeFromShardHooks = hooks.makeMapped('removeFromShard');
+
+// Mods register their handlers from a `user` provide, loaded here rather than relied on from the
+// caller: `manage` loads no `backend` provide.
+const loadRemoveHandlers = () => import('xxscreeps:mods/user');
 
 const providerMembersKey = (provider: string) => `usersByProvider/${provider}`;
 const userProvidersKey = (userId: string) => `user/${userId}/provider`;
 export const infoKey = (userId: string) => `user/${userId}`;
 
 export const emailProvider = 'email';
+
+// Every world needs these; the processor discounts them when sizing its worker pool from the
+// `users` set.
+export const npcUsers = {
+	1: 'Screeps',
+	2: 'Invader',
+	3: 'Source Keeper',
+};
 
 interface BackendUserInfo {
 	username: string;
@@ -44,7 +60,7 @@ function flattenUsername(username: string) {
 	return username.replace(/[-_ ]/g, '').toLowerCase();
 }
 
-function flattenEmail(email: string) {
+export function flattenEmail(email: string) {
 	return email.toLowerCase();
 }
 
@@ -84,13 +100,41 @@ export async function create(db: Database, userId: string, username: string, pro
 }
 
 /**
+ * Claim `id` under `provider` for a user, replacing whatever they held there before. The reverse
+ * lookup is claimed with `NX` so two accounts racing for the same id cannot both win it; returns
+ * `false` without writing when somebody else holds it. Claiming what the user already holds is a
+ * no-op which succeeds.
+ */
+export async function associateProvider(db: Database, userId: string, provider: string, id: string) {
+	const [ claimed, previous ] = await Promise.all([
+		db.data.hSet(providerMembersKey(provider), id, userId, { if: 'NX' }),
+		providerIdForUser(db, provider, userId),
+	]);
+	if (!claimed) {
+		// Somebody holds it — us, if this is a repeat, and otherwise not ours to take.
+		const holder = await db.data.hGet(providerMembersKey(provider), id);
+		if (holder !== userId) {
+			return false;
+		}
+	}
+	await Promise.all([
+		db.data.hSet(userProvidersKey(userId), provider, id),
+		// Free the reverse lookup for a replaced id so it can be reused.
+		...previous !== null && previous !== id ? [ db.data.hDel(providerMembersKey(provider), [ previous ]) ] : [],
+	]);
+	return true;
+}
+
+/**
  * Deletes a user's database records: lookup entries, info, and code. Room objects owned by the
- * user are unaffected.
+ * user are unaffected. Run `removeFromShard` on every shard first; once this record is gone nothing
+ * finds the user's per-shard state.
  */
 export async function remove(db: Database, userId: string) {
 	const [ providers, branches ] = await Promise.all([
 		findProvidersForUser(db, userId),
 		db.data.sMembers(branchManifestKey(userId)),
+		loadRemoveHandlers(),
 	]);
 	await Promise.all([
 		db.data.sRem('users', [ userId ]),
@@ -104,6 +148,18 @@ export async function remove(db: Database, userId: string) {
 			db.data.vDel(stringsKey(userId, branchName)),
 		]),
 		...removeHooks(db, userId),
+	]);
+}
+
+/**
+ * Deletes a user's records on one shard. Run it on every shard before `remove`, which deletes the
+ * record that finds the user.
+ */
+export async function removeFromShard(shard: Shard, userId: string) {
+	await loadRemoveHandlers();
+	await Promise.all([
+		deleteUserBucket(shard, userId),
+		...removeFromShardHooks(shard, userId),
 	]);
 }
 

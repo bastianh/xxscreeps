@@ -27,7 +27,9 @@ type ResponderMessage =
 type ResponderResult<Type, Result> = [ Effect, (payload: Type) => Promise<Result> ];
 const localEmitter = new EventEmitter();
 
-export async function negotiateResponderClient<Type, Result>(path: string, singleThread?: boolean) {
+// nb: `argv` is only delivered to a threaded host. A single-threaded host shares this process, so
+// it reads whatever the process was started with.
+export async function negotiateResponderClient<Type, Result>(path: string, singleThread?: boolean, argv?: string[]) {
 	interface Adapter {
 		onMessage: (fn: (message: ResponderMessage) => void) => void;
 		onClose: (fn: (err: unknown) => void) => void;
@@ -42,7 +44,7 @@ export async function negotiateResponderClient<Type, Result>(path: string, singl
 				wait: () => worker,
 			};
 		} else {
-			const worker = Worker.create(path);
+			const worker = Worker.create(path, { argv });
 			return {
 				onMessage(fn) { worker.on('message', fn); },
 				onClose(fn) { worker.on('exit', () => fn(new Error('Processor failed to initialize'))); },

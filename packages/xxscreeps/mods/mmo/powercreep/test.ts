@@ -94,6 +94,13 @@ describe('mods/mmo/powercreep', () => {
 		assert.strictEqual((await Model.loadRoster(shard.db, owner))[0]!.deleteTime, 0);
 	}));
 
+	test('removing a user drops their roster', () => sim(async ({ shard }) => {
+		await setPower(shard.db, 1000);
+		assert.strictEqual(await Model.create(shard.db, owner, 'Alice', C.POWER_CLASS.OPERATOR), C.OK);
+		await User.remove(shard.db, owner);
+		assert.strictEqual((await Model.loadRoster(shard.db, owner)).length, 0);
+	}));
+
 	test('the driver blob materializes an unspawned roster member', () => sim(async ({ shard }) => {
 		await setPower(shard.db, 4000);
 		assert.strictEqual(await Model.create(shard.db, owner, 'Alice', C.POWER_CLASS.OPERATOR), C.OK);
@@ -165,7 +172,7 @@ describe('mods/mmo/powercreep', () => {
 			assert.strictEqual(Game.powerCreeps.Forged, undefined);
 			assert.strictEqual(alice?.room.name, 'W1N1');
 			assert.strictEqual(alice.pos.isEqualTo(spawnPos), true);
-			assert.strictEqual(alice.ticksToLive, C.POWER_CREEP_LIFE_TIME);
+			assert.strictEqual(alice.ticksToLive, C.POWER_CREEP_LIFE_TIME - 1);
 			assert.strictEqual(alice.hits, 1000);
 			assert.deepStrictEqual(alice.powers, {});
 		});
@@ -375,7 +382,7 @@ describe('mods/mmo/powercreep', () => {
 		});
 		await tick();
 		await player(owner, Game => {
-			assert.strictEqual(Game.powerCreeps.Alice?.ticksToLive, C.POWER_CREEP_LIFE_TIME);
+			assert.strictEqual(Game.powerCreeps.Alice?.ticksToLive, C.POWER_CREEP_LIFE_TIME - 1);
 		});
 	}));
 
@@ -556,7 +563,10 @@ describe('mods/mmo/powercreep', () => {
 			const alice = Game.powerCreeps.Alice;
 			assert.strictEqual(alice?.store[C.RESOURCE_OPS], 1);
 			assert.deepStrictEqual({ ...alice.powers }, {
-				[C.PWR_GENERATE_OPS]: { cooldown: C.POWER_INFO[C.PWR_GENERATE_OPS]!.cooldown, level: 1 },
+				[C.PWR_GENERATE_OPS]: {
+					cooldown: C.POWER_INFO[C.PWR_GENERATE_OPS]!.cooldown - 1,
+					level: 1,
+				},
 			});
 			assert.strictEqual(alice.usePower(C.PWR_GENERATE_OPS), C.ERR_TIRED);
 		});
